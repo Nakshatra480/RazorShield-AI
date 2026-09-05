@@ -1,7 +1,7 @@
 "use client";
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { MOCK_BENCHMARK } from "@/lib/mockData";
+import { useBenchmarkData } from "@/hooks/useBenchmarkData";
 
 interface Cell {
   label: string;
@@ -22,7 +22,8 @@ const TOOLTIP_DEFS: Record<string, string> = {
 
 export default function ConfusionMatrix() {
   const [tooltip, setTooltip] = useState<string | null>(null);
-  const cm = MOCK_BENCHMARK.confusionMatrix;
+  const { data } = useBenchmarkData();
+  const cm = data.confusionMatrix;
   const total = cm.truePositive + cm.falsePositive + cm.trueNegative + cm.falseNegative;
 
   const cells: Cell[] = [
@@ -74,7 +75,9 @@ export default function ConfusionMatrix() {
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-white">Confusion Matrix</h3>
         <p className="text-xs text-slate-500 mt-0.5">
-          Evaluated on {total} merchant samples — hover cells for definitions
+          Evaluated on {total} merchant samples
+          {!data.isMock && " (live benchmark)"}
+          {" "}— hover cells for definitions
         </p>
       </div>
 
@@ -124,7 +127,7 @@ export default function ConfusionMatrix() {
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">{cell.label}</div>
                 <div className="text-xs text-slate-600 mt-1 font-mono">
-                  {((cell.value / total) * 100).toFixed(1)}%
+                  {total > 0 ? ((cell.value / total) * 100).toFixed(1) : "0.0"}%
                 </div>
               </motion.div>
 

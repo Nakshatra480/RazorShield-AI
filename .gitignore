@@ -1,3 +1,19 @@
+# secrets — never commit
+credentials.txt
+.env
+.env.local
+.env.*.local
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+*.dist-info/
+
 # dependencies
 /node_modules
 /.pnp

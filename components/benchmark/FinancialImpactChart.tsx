@@ -11,7 +11,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { MOCK_BENCHMARK } from "@/lib/mockData";
+import { useBenchmarkData } from "@/hooks/useBenchmarkData";
 import { TrendingDown } from "lucide-react";
 
 const CustomTooltip = ({
@@ -55,12 +55,15 @@ const CustomTooltip = ({
 };
 
 export default function FinancialImpactChart() {
-  const data = MOCK_BENCHMARK.financialImpact;
+  const { data } = useBenchmarkData();
+  const chartData = data.financialImpact;
 
-  const totalTraditional = data.reduce((s, d) => s + d.traditional, 0);
-  const totalRazorshield = data.reduce((s, d) => s + d.razorshield, 0);
+  const totalTraditional = chartData.reduce((s, d) => s + d.traditional, 0);
+  const totalRazorshield = chartData.reduce((s, d) => s + d.razorshield, 0);
   const savings = totalTraditional - totalRazorshield;
-  const savingsPct = ((savings / totalTraditional) * 100).toFixed(1);
+  const savingsPct = totalTraditional > 0
+    ? ((savings / totalTraditional) * 100).toFixed(1)
+    : "0.0";
 
   return (
     <motion.div
@@ -77,6 +80,9 @@ export default function FinancialImpactChart() {
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
             Traditional Rule Engine vs. RazorShield AI — monthly fraud losses
+            {!data.isMock && (
+              <span className="ml-2 text-emerald-500">(live data)</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-900/20 border border-emerald-800/40">
@@ -122,7 +128,7 @@ export default function FinancialImpactChart() {
       <div className="h-52">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
-            data={data}
+            data={chartData}
             margin={{ top: 4, right: 4, left: -16, bottom: 0 }}
           >
             <defs>
