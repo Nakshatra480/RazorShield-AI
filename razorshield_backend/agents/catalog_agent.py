@@ -18,6 +18,7 @@ and reused for all requests.
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Optional
@@ -29,6 +30,10 @@ from sqlalchemy import text
 from razorshield_backend.config import Settings, get_settings
 from razorshield_backend.db.database import get_session
 from razorshield_backend.scrapers.browser import ProductItem
+
+# PyTorch/sentence-transformers is NOT thread-safe for concurrent encode() calls.
+# This lock ensures only one thread encodes at a time — prevents SIGSEGV under load.
+_EMBED_LOCK = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -101,14 +106,19 @@ class CatalogAgent:
         return _load_embedding_model(self._settings.embedding_model_name)
 
     def _embed_texts(self, texts: list[str]) -> np.ndarray:
-        """Return a (N, 768) float32 numpy array of normalised embeddings."""
+        """
+        Return a (N, 768) float32 numpy array of normalised embeddings.
+        Serialised through _EMBED_LOCK to prevent concurrent PyTorch calls
+        which cause segmentation faults under asyncio.to_thread concurrency.
+        """
         model = self._get_model()
-        embeddings = model.encode(
-            texts,
-            normalize_embeddings=True,    # cosine sim = dot product after L2 norm
-            show_progress_bar=False,
-            batch_size=16,
-        )
+        with _EMBED_LOCK:
+            embeddings = model.encode(
+                texts,
+                normalize_embeddings=True,    # cosine sim = dot product after L2 norm
+                show_progress_bar=False,
+                batch_size=16,
+            )
         return np.array(embeddings, dtype=np.float32)
 
     def _keyword_fallback(self, products: list[ProductItem]) -> list[FlaggedItem]:
@@ -138,25 +148,30 @@ class CatalogAgent:
         """
         Cosine similarity search against prohibited_patterns using pgvector.
         `<=>` is the cosine distance operator; similarity = 1 - distance.
+
+        Note: the embedding vector is embedded directly into the SQL as a literal
+        (not as a bind parameter) because asyncpg cannot cast Python strings to
+        the pgvector type via $1::vector — it raises a PostgresSyntaxError.
+        The vector values are safe to inline since they come from our own model output.
         """
-        # Format as PostgreSQL vector literal
+        # Format as PostgreSQL vector literal e.g. '[0.123456,0.234567,...]'
         vec_literal = "[" + ",".join(f"{v:.6f}" for v in embedding.tolist()) + "]"
+
+        # Embed vector literal directly in SQL — only :threshold is a bind param
         query = text(
-            """
+            f"""
             SELECT
                 category,
                 pattern_text,
-                1 - (embedding <=> :vec::vector) AS similarity
+                1 - (embedding <=> '{vec_literal}'::vector) AS similarity
             FROM prohibited_patterns
-            WHERE 1 - (embedding <=> :vec::vector) > :threshold
+            WHERE 1 - (embedding <=> '{vec_literal}'::vector) > :threshold
             ORDER BY similarity DESC
             LIMIT 3
             """
         )
         async with get_session() as session:
-            result = await session.execute(
-                query, {"vec": vec_literal, "threshold": threshold}
-            )
+            result = await session.execute(query, {"threshold": threshold})
             return [
                 {
                     "category": row.category,

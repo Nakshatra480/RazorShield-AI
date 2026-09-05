@@ -40,7 +40,7 @@ from sklearn.metrics import (
 )
 from sqlalchemy import text
 
-from razorshield_backend.agents.catalog_agent import _load_embedding_model
+from razorshield_backend.agents.catalog_agent import _load_embedding_model, _EMBED_LOCK
 from razorshield_backend.agents.orchestrator import score_from_raw_data
 from razorshield_backend.config import get_settings
 from razorshield_backend.db.database import get_session, init_db
@@ -237,12 +237,13 @@ async def seed_prohibited_patterns() -> int:
 
     texts = [item["text"] for item in PROHIBITED_CATALOGUE]
     logger.info("Embedding %d prohibited patterns...", len(texts))
-    embeddings = model.encode(
-        texts,
-        normalize_embeddings=True,
-        show_progress_bar=True,
-        batch_size=16,
-    )
+    with _EMBED_LOCK:
+        embeddings = model.encode(
+            texts,
+            normalize_embeddings=True,
+            show_progress_bar=True,
+            batch_size=16,
+        )
 
     async with get_session() as session:
         # Clear existing patterns to avoid duplicates on re-run
@@ -299,8 +300,9 @@ async def run_benchmark() -> dict:
     # Shuffle to randomise processing order
     random.shuffle(profiles)
 
-    # 3. Run scoring concurrently with semaphore
-    semaphore = asyncio.Semaphore(settings.max_concurrent_inspections)
+    # 3. Run scoring concurrently
+    # Semaphore=3 balances throughput with OpenRouter free-tier rate limits
+    semaphore = asyncio.Semaphore(3)
     y_true: list[int] = []
     y_pred: list[int] = []
     scan_details: list[dict] = []
