@@ -1,13 +1,12 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 import { motion } from "framer-motion";
 import { Search, Zap, Shield, X, Globe } from "lucide-react";
-import dynamic from "next/dynamic";
 
-const ScannerGlobe = dynamic(() => import("@/components/three/ScannerGlobe"), {
-  ssr: false,
-  loading: () => <div className="w-full h-full" />,
-});
+// Lazy-load the Three.js globe — only ever runs on the client.
+// We gate rendering behind `isMounted` so the SSR pass never touches it,
+// which prevents the Next.js 14 "BailoutToCSR" crash that stripped all CSS.
+const ScannerGlobe = lazy(() => import("@/components/three/ScannerGlobe"));
 
 interface ScannerHeaderProps {
   onStartScan: (url: string) => void;
@@ -22,6 +21,10 @@ export default function ScannerHeader({
 }: ScannerHeaderProps) {
   const [url, setUrl] = useState("");
   const [focused, setFocused] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Only render Three.js canvas after client hydration — avoids SSR BailoutToCSR crash
+  useEffect(() => { setIsMounted(true); }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,9 +39,13 @@ export default function ScannerHeader({
       {/* Scan line animation */}
       <div className="scan-line" />
 
-      {/* Three.js Globe - background */}
+      {/* Three.js Globe - client-only, gated behind isMounted to skip SSR */}
       <div className="absolute right-0 top-0 w-80 h-full opacity-60 pointer-events-none">
-        <ScannerGlobe />
+        {isMounted && (
+          <Suspense fallback={<div className="w-full h-full" />}>
+            <ScannerGlobe />
+          </Suspense>
+        )}
       </div>
 
       {/* Grid overlay */}

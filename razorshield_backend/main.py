@@ -245,6 +245,40 @@ async def inspect_merchant(body: InspectRequest) -> ScanResponse:
 
 
 @app.get(
+    "/api/v1/scans",
+    tags=["inspection"],
+    summary="List recent scan results (paginated).",
+)
+async def list_scans(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    """
+    Returns a paginated list of recent merchant inspections from Neon DB,
+    ordered newest-first. Used to populate the Risk Operations Feed in the UI.
+    """
+    from sqlalchemy import select
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Scan)
+            .order_by(Scan.created_at.desc())
+            .offset(offset)
+            .limit(min(limit, 200))
+        )
+        scans = result.scalars().all()
+
+    return [
+        {
+            "scan_id": str(s.id),
+            "domain": s.domain,
+            "risk_score": float(s.overall_risk_score),
+            "risk_tier": s.risk_tier.value,
+            "created_at": s.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "guardrail_triggered": bool(s.guardrail_triggered),
+        }
+        for s in scans
+    ]
+
+
+@app.get(
     "/api/v1/scans/{scan_id}",
     tags=["inspection"],
     summary="Retrieve a past scan result by ID.",

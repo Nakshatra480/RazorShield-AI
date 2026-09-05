@@ -11,7 +11,7 @@ import RiskFeed from "@/components/feed/RiskFeed";
 import MetricCards from "@/components/benchmark/MetricCards";
 import ConfusionMatrix from "@/components/benchmark/ConfusionMatrix";
 import FinancialImpactChart from "@/components/benchmark/FinancialImpactChart";
-import { useScanSimulation } from "@/hooks/useScanSimulation";
+import { useMerchantScan } from "@/hooks/useMerchantScan";
 
 type Tab = "scanner" | "feed" | "benchmark";
 
@@ -24,7 +24,7 @@ const PAGE_TRANSITIONS = {
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<Tab>("scanner");
-  const { state, startScan, reset } = useScanSimulation();
+  const { state, startScan, reset } = useMerchantScan();
 
   const isScanning = state.phase === "scanning";
   const isComplete = state.phase === "complete";
@@ -47,6 +47,27 @@ export default function HomePage() {
                     isScanning={isScanning}
                     onReset={reset}
                   />
+
+                  {/* Error state */}
+                  {state.phase === "error" && state.errorMessage && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="rounded-xl border border-red-900/50 bg-red-950/20 px-5 py-4 flex items-center justify-between"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-red-400">Inspection Failed</p>
+                        <p className="text-xs font-mono text-red-500/80 mt-0.5">{state.errorMessage}</p>
+                        <p className="text-xs text-slate-500 mt-1">Make sure the backend is running: <span className="font-mono">python3.11 -m uvicorn razorshield_backend.main:app --port 8000</span></p>
+                      </div>
+                      <button
+                        onClick={reset}
+                        className="ml-4 px-3 py-1.5 text-xs font-medium text-red-400 border border-red-800/50 rounded-lg hover:bg-red-900/20 transition-colors flex-shrink-0"
+                      >
+                        Dismiss
+                      </button>
+                    </motion.div>
+                  )}
 
                   {/* Pipeline + results only when active */}
                   {(isScanning || isComplete) && (
