@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     # ── LLM / OpenRouter ──────────────────────────────────────────────────────
     openrouter_api_key: str
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    # Free-tier Llama 3.1 70B via OpenRouter — prefix tells LiteLLM which provider to use
-    llm_model: str = "openrouter/meta-llama/llama-3.1-70b-instruct:free"
+    # Free-tier Llama 3.1 70B via OpenRouter — use standard slug (no :free suffix)
+    llm_model: str = "openrouter/meta-llama/llama-3.1-70b-instruct"
 
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str  # Neon PostgreSQL connection string
