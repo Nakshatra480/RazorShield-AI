@@ -34,7 +34,7 @@ from pydantic import AnyHttpUrl, BaseModel, Field
 from razorshield_backend.agents.orchestrator import run_full_inspection
 from razorshield_backend.config import get_settings
 from razorshield_backend.db.database import async_session_maker, init_db
-from razorshield_backend.db.models import Scan
+from razorshield_backend.db.models import Merchant, Scan
 from razorshield_backend.scrapers.browser import BrowserManager
 
 logging.basicConfig(
@@ -253,29 +253,44 @@ async def list_scans(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
     """
     Returns a paginated list of recent merchant inspections from Neon DB,
     ordered newest-first. Used to populate the Risk Operations Feed in the UI.
+    Joins with the merchants table to resolve the human-readable domain name.
     """
     from sqlalchemy import select
+    from urllib.parse import urlparse
 
     async with async_session_maker() as session:
         result = await session.execute(
-            select(Scan)
+            select(Scan, Merchant)
+            .join(Merchant, Scan.merchant_id == Merchant.id)
             .order_by(Scan.created_at.desc())
             .offset(offset)
             .limit(min(limit, 200))
         )
-        scans = result.scalars().all()
+        rows = result.all()
 
-    return [
-        {
-            "scan_id": str(s.id),
-            "domain": s.domain,
-            "risk_score": float(s.overall_risk_score),
-            "risk_tier": s.risk_tier.value,
-            "created_at": s.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "guardrail_triggered": bool(s.guardrail_triggered),
-        }
-        for s in scans
-    ]
+    output = []
+    for scan, merchant in rows:
+        # Extract bare domain from the stored URL (e.g. "https://stripe.com" → "stripe.com")
+        raw_url = merchant.domain_url or ""
+        try:
+            domain = urlparse(raw_url).netloc or raw_url
+        except Exception:
+            domain = raw_url
+
+        # Guardrail flag lives in findings_json if the column exists, else default False
+        findings = scan.findings_json or {}
+        guardrail = bool(findings.get("guardrail_triggered", False))
+
+        output.append({
+            "scan_id": str(scan.id),
+            "domain": domain,
+            "risk_score": float(scan.overall_risk_score),
+            "risk_tier": scan.risk_tier.value,
+            "created_at": scan.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "guardrail_triggered": guardrail,
+        })
+
+    return output
 
 
 @app.get(
