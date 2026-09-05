@@ -1,7 +1,14 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * RazorShield AI — light design system.
+ *
+ * Palette is deliberately restrained: one navy ink ramp for text, one blue for
+ * brand/interaction, and three semantic risk hues. Everything else is white,
+ * or a near-white surface. Borders do the structural work instead of shadows,
+ * which keeps dense data tables legible at small sizes.
+ */
 const config: Config = {
-  darkMode: ["class"],
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -10,73 +17,68 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "Fira Code", "monospace"],
+        sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       colors: {
-        background: "#090D16",
-        surface: "#111827",
-        "surface-2": "#1F2937",
-        border: "#374151",
-        "border-subtle": "#1F2937",
+        // Structure
+        canvas: "#F6F8FB",
+        surface: "#FFFFFF",
+        "surface-muted": "#F1F4F9",
+        "surface-sunken": "#EDF1F7",
+        line: "#E3E9F2",
+        "line-strong": "#CBD5E6",
+
+        // Text ramp (navy, not neutral grey — reads closer to fintech UI)
+        ink: "#0B1B3F",
+        "ink-2": "#3D4C6B",
+        "ink-3": "#6B7A99",
+        "ink-4": "#94A0B8",
+
         brand: {
-          blue: "#3B82F6",
-          indigo: "#6366F1",
-          "blue-dim": "#1D4ED8",
+          DEFAULT: "#2B6CF6",
+          hover: "#1B54D4",
+          press: "#1546B4",
+          soft: "#EAF1FE",
+          border: "#C3D8FD",
+          ink: "#12388F",
         },
+
         risk: {
-          safe: "#10B981",
-          "safe-dim": "#064E3B",
-          warning: "#F59E0B",
-          "warning-dim": "#78350F",
-          danger: "#EF4444",
-          "danger-dim": "#7F1D1D",
-        },
-        slate: {
-          750: "#2D3748",
-          850: "#1A202C",
-          950: "#090D16",
+          safe: "#0F8A5F",
+          "safe-soft": "#E7F6EF",
+          "safe-border": "#B4E2CD",
+          warn: "#B26A00",
+          "warn-soft": "#FEF4E3",
+          "warn-border": "#F2D9A8",
+          danger: "#D0342C",
+          "danger-soft": "#FDECEA",
+          "danger-border": "#F5C2BD",
         },
       },
-      backgroundImage: {
-        "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
-        "scanner-grid":
-          "linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)",
-      },
-      backgroundSize: {
-        grid: "32px 32px",
-      },
-      animation: {
-        "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        "scan-sweep": "scanSweep 2s ease-in-out infinite",
-        "dot-blink": "dotBlink 1.4s ease-in-out infinite",
-        "glow-pulse": "glowPulse 2s ease-in-out infinite",
-        float: "float 6s ease-in-out infinite",
-      },
-      keyframes: {
-        scanSweep: {
-          "0%": { transform: "translateX(-100%)", opacity: "0" },
-          "50%": { opacity: "1" },
-          "100%": { transform: "translateX(100%)", opacity: "0" },
-        },
-        dotBlink: {
-          "0%, 80%, 100%": { opacity: "0.3", transform: "scale(0.8)" },
-          "40%": { opacity: "1", transform: "scale(1)" },
-        },
-        glowPulse: {
-          "0%, 100%": { boxShadow: "0 0 0 0 rgba(59,130,246,0)" },
-          "50%": { boxShadow: "0 0 0 4px rgba(59,130,246,0.15)" },
-        },
-        float: {
-          "0%, 100%": { transform: "translateY(0px)" },
-          "50%": { transform: "translateY(-6px)" },
-        },
+      borderRadius: {
+        card: "12px",
       },
       boxShadow: {
-        "brand-sm": "0 0 12px rgba(59,130,246,0.15)",
-        "brand-md": "0 0 24px rgba(59,130,246,0.2)",
-        "surface-sm": "0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.4)",
-        "surface-md": "0 4px 16px rgba(0,0,0,0.5)",
+        // Very low-contrast elevation — light UIs get muddy fast with heavy shadows
+        card: "0 1px 2px rgba(11,27,63,0.04), 0 1px 3px rgba(11,27,63,0.06)",
+        raised: "0 4px 12px rgba(11,27,63,0.08)",
+        pop: "0 8px 28px rgba(11,27,63,0.12)",
+        focus: "0 0 0 3px rgba(43,108,246,0.18)",
+      },
+      animation: {
+        "dot-blink": "dotBlink 1.4s ease-in-out infinite",
+        shimmer: "shimmer 1.6s linear infinite",
+      },
+      keyframes: {
+        dotBlink: {
+          "0%, 80%, 100%": { opacity: "0.35", transform: "scale(0.8)" },
+          "40%": { opacity: "1", transform: "scale(1)" },
+        },
+        shimmer: {
+          "0%": { backgroundPosition: "-400px 0" },
+          "100%": { backgroundPosition: "400px 0" },
+        },
       },
     },
   },

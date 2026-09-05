@@ -4,16 +4,18 @@ razorshield_backend/db/database.py
 Async SQLAlchemy engine, session factory, and DB initialisation.
 
 Key behaviours:
-  - Strips `channel_binding=require` from the Neon connection string (asyncpg
-    does not support this parameter and will raise a ConnectionError).
+  - Normalises any Postgres URL flavour into an asyncpg-compatible one, dropping
+    query parameters asyncpg cannot accept (channel_binding, sslmode, ...).
   - Enables the pgvector extension before running DDL migrations.
   - Provides a clean async context-manager session with auto-commit/rollback.
 """
 
 import logging
+import os
 import re
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -21,6 +23,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import DeclarativeBase
 
 from razorshield_backend.config import get_settings
@@ -30,31 +33,61 @@ logger = logging.getLogger(__name__)
 
 # ─── URL normalisation ────────────────────────────────────────────────────────
 
+# Query params that asyncpg's connect() rejects outright. SSL is handled
+# separately via connect_args, so sslmode is stripped rather than translated.
+_UNSUPPORTED_QUERY_PARAMS = {
+    "channel_binding",
+    "sslmode",
+    "sslrootcert",
+    "sslcert",
+    "sslkey",
+    "gssencmode",
+    "target_session_attrs",
+    "options",
+}
+
+# Scheme aliases that all mean "PostgreSQL". `postgres://` is what Heroku/Neon
+# dashboards often hand out; the old string-replace only matched `postgresql://`
+# and silently left such a URL with a driver SQLAlchemy could not resolve.
+_PG_SCHEME_ALIASES = {"postgres", "postgresql", "postgresql+psycopg2", "postgresql+psycopg"}
+
+
 def _build_async_db_url(raw_url: str) -> str:
     """
     Convert a standard psql URL into an asyncpg-compatible one.
 
-    Changes:
-      postgresql://  →  postgresql+asyncpg://
-      Removes ?channel_binding=...  (asyncpg doesn't support it)
-      Converts ?sslmode=require → handled via connect_args instead
+    - postgres:// | postgresql:// | postgresql+psycopg2://  →  postgresql+asyncpg://
+    - Removes query params asyncpg cannot accept (channel_binding, sslmode, ...)
+    - Leaves an already-asyncpg URL untouched apart from param cleaning.
     """
-    url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if not raw_url or not raw_url.strip():
+        raise ValueError("DATABASE_URL is empty — set it in your .env file.")
 
-    # Strip channel_binding parameter (may appear as ?x=y&channel_binding=z
-    # or as the sole query param)
-    url = re.sub(r"[&?]channel_binding=[^&\s]*", "", url)
+    parts = urlsplit(raw_url.strip())
+    scheme = parts.scheme.lower()
 
-    # Remove dangling ? or trailing &
-    url = re.sub(r"\?&", "?", url)
-    url = url.rstrip("?&")
+    if scheme in _PG_SCHEME_ALIASES:
+        scheme = "postgresql+asyncpg"
+    elif scheme != "postgresql+asyncpg":
+        raise ValueError(
+            f"Unsupported DATABASE_URL scheme {parts.scheme!r}. "
+            "Expected a postgresql:// (or postgresql+asyncpg://) connection string."
+        )
 
-    # Remove sslmode from query string — we pass ssl via connect_args
-    url = re.sub(r"[&?]sslmode=[^&\s]*", "", url)
-    url = re.sub(r"\?&", "?", url)
-    url = url.rstrip("?&")
+    # Parse-and-rebuild rather than regex-substitute: this cannot leave behind a
+    # dangling '?' or '&', regardless of parameter order.
+    kept = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key.lower() not in _UNSUPPORTED_QUERY_PARAMS
+    ]
 
-    return url
+    return urlunsplit((scheme, parts.netloc, parts.path, urlencode(kept), parts.fragment))
+
+
+def redact_db_url(url: str) -> str:
+    """Mask the password so a connection string can be safely logged."""
+    return re.sub(r"://([^:/@]+):([^@]+)@", r"://\1:***@", url)
 
 
 # ─── Engine & session factory ─────────────────────────────────────────────────
@@ -62,15 +95,28 @@ def _build_async_db_url(raw_url: str) -> str:
 settings = get_settings()
 _async_db_url = _build_async_db_url(settings.database_url)
 
-engine = create_async_engine(
-    _async_db_url,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,           # verify connections before use
-    pool_recycle=300,             # recycle connections every 5 min
-    echo=False,
-    connect_args={"ssl": "require"},   # Neon requires TLS
-)
+_is_testing = os.getenv("RAZORSHIELD_TESTING") == "1"
+
+if _is_testing:
+    # NullPool: no connection reuse — safe for pytest per-function event loops.
+    engine = create_async_engine(
+        _async_db_url,
+        poolclass=NullPool,
+        echo=False,
+        connect_args={"ssl": "require"},
+    )
+else:
+    engine = create_async_engine(
+        _async_db_url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        # Fail fast instead of hanging a request forever when the pool is drained.
+        pool_timeout=30,
+        echo=False,
+        connect_args={"ssl": "require"},
+    )
 
 async_session_maker = async_sessionmaker(
     engine,
@@ -103,6 +149,25 @@ async def init_db() -> None:
 
         await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables initialised.")
+
+
+async def check_connection() -> float:
+    """
+    Run a trivial round trip and return its latency in milliseconds.
+    Raises on failure — used by the readiness probe.
+    """
+    import time
+
+    start = time.monotonic()
+    async with async_session_maker() as session:
+        await session.execute(text("SELECT 1"))
+    return (time.monotonic() - start) * 1000
+
+
+async def dispose_engine() -> None:
+    """Close all pooled connections. Called on application shutdown."""
+    await engine.dispose()
+    logger.info("Database engine disposed.")
 
 
 # ─── Session dependency ────────────────────────────────────────────────────────

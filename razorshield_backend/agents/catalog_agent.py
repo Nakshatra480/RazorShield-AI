@@ -7,17 +7,18 @@ and pgvector cosine similarity search.
 Pipeline:
   1. Encode each product title + description using BAAI/bge-base-en-v1.5
      (768-dim, fully local, no API key required).
-  2. For each product embedding, execute a pgvector `<=>` cosine distance
-     query against the `prohibited_patterns` table.
-  3. Items with cosine similarity > threshold are flagged.
-  4. Falls back to keyword-matching if the prohibited_patterns table is empty.
+  2. Run ONE batched pgvector query that finds the nearest prohibited pattern
+     for every product at once.
+  3. Items whose cosine similarity exceeds the threshold are flagged.
+  4. Falls back to keyword matching if the prohibited_patterns table is empty
+     or the embedding model cannot be loaded.
 
-The SentenceTransformer model is loaded once at process start (lru_cache)
-and reused for all requests.
+The SentenceTransformer model is loaded once per process (lru_cache) and reused.
 """
 
 import asyncio
 import logging
+import math
 import threading
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -39,21 +40,22 @@ logger = logging.getLogger(__name__)
 
 
 # ─── Hardcoded keyword fallback (used when prohibited_patterns table is empty) ─
-
-_PROHIBITED_KEYWORDS: set[str] = {
+# Ordered (not a set) so the matched keyword for a given product is deterministic
+# — a risk verdict must not vary between runs on identical input.
+_PROHIBITED_KEYWORDS: tuple[str, ...] = (
     # Weapons
-    "gun", "firearm", "pistol", "rifle", "ammo", "ammunition", "silencer",
-    "switchblade", "brass knuckles", "taser",
+    "ammunition", "brass knuckles", "firearm", "silencer", "switchblade",
+    "taser", "pistol", "rifle", "ammo", "gun",
     # Drugs / pharmaceuticals
-    "opioid", "fentanyl", "methamphetamine", "cocaine", "heroin", "mdma",
-    "prescription drug", "controlled substance", "research chemical",
+    "controlled substance", "prescription drug", "research chemical",
+    "methamphetamine", "fentanyl", "cocaine", "heroin", "opioid", "mdma",
     # Counterfeit
-    "replica watch", "fake designer", "counterfeit", "knockoff", "imitation brand",
+    "counterfeit", "fake designer", "imitation brand", "replica watch", "knockoff",
     # Gambling
-    "casino chip", "poker chip", "slot machine hack", "bet credits",
+    "slot machine hack", "bet credits", "casino chip", "poker chip",
     # Exploitation
-    "darkweb", "hacked account", "stolen data", "identity theft kit",
-}
+    "identity theft kit", "hacked account", "stolen data", "darkweb",
+)
 
 
 # ─── Data structures ──────────────────────────────────────────────────────────
@@ -91,6 +93,28 @@ def _load_embedding_model(model_name: str) -> SentenceTransformer:
     return model
 
 
+def to_vector_literal(embedding) -> str:
+    """
+    Render an embedding as a PostgreSQL vector literal, e.g. '[0.1,0.2,...]'.
+
+    The values are interpolated into SQL rather than bound, because asyncpg
+    cannot cast a bound Python string to the pgvector type ($1::vector raises
+    PostgresSyntaxError). Every element is therefore validated to be a finite
+    float and re-rendered with a fixed format, so nothing but digits, '-', '.'
+    and ',' can reach the statement — a non-numeric value raises instead of
+    being concatenated into SQL.
+    """
+    values = []
+    for raw in embedding:
+        value = float(raw)
+        if not math.isfinite(value):
+            raise ValueError(f"Embedding contains a non-finite value: {raw!r}")
+        values.append(f"{value:.6f}")
+    if not values:
+        raise ValueError("Refusing to build an empty vector literal")
+    return "[" + ",".join(values) + "]"
+
+
 # ─── Agent ────────────────────────────────────────────────────────────────────
 
 class CatalogAgent:
@@ -98,6 +122,9 @@ class CatalogAgent:
     Stateless catalog safety agent.
     Instantiate once and reuse across requests.
     """
+
+    # Each flagged product costs this much catalog score.
+    _PENALTY_PER_ITEM = 0.15
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self._settings = settings or get_settings()
@@ -107,7 +134,7 @@ class CatalogAgent:
 
     def _embed_texts(self, texts: list[str]) -> np.ndarray:
         """
-        Return a (N, 768) float32 numpy array of normalised embeddings.
+        Return a (N, dim) float32 numpy array of normalised embeddings.
         Serialised through _EMBED_LOCK to prevent concurrent PyTorch calls
         which cause segmentation faults under asyncio.to_thread concurrency.
         """
@@ -123,8 +150,8 @@ class CatalogAgent:
 
     def _keyword_fallback(self, products: list[ProductItem]) -> list[FlaggedItem]:
         """
-        Simple keyword scan used when the prohibited_patterns table is empty.
-        Not as accurate as vector search but provides a safety net.
+        Simple keyword scan used when vector search is unavailable.
+        Less accurate than vector search but provides a safety net.
         """
         flagged: list[FlaggedItem] = []
         for product in products:
@@ -142,44 +169,71 @@ class CatalogAgent:
                     break
         return flagged
 
-    async def _vector_search(
-        self, embedding: np.ndarray, threshold: float
-    ) -> list[dict]:
-        """
-        Cosine similarity search against prohibited_patterns using pgvector.
-        `<=>` is the cosine distance operator; similarity = 1 - distance.
+    def _fallback_result(
+        self, products: list[ProductItem], error: Optional[str] = None
+    ) -> CatalogResult:
+        flagged = self._keyword_fallback(products)
+        return CatalogResult(
+            has_prohibited_items=bool(flagged),
+            catalog_score=self._score_for(len(flagged)),
+            flagged_items=flagged,
+            checked_via_vectors=False,
+            agent_error=error,
+        )
 
-        Note: the embedding vector is embedded directly into the SQL as a literal
-        (not as a bind parameter) because asyncpg cannot cast Python strings to
-        the pgvector type via $1::vector — it raises a PostgresSyntaxError.
-        The vector values are safe to inline since they come from our own model output.
-        """
-        # Format as PostgreSQL vector literal e.g. '[0.123456,0.234567,...]'
-        vec_literal = "[" + ",".join(f"{v:.6f}" for v in embedding.tolist()) + "]"
+    def _score_for(self, flagged_count: int) -> float:
+        return round(max(0.0, 1.0 - flagged_count * self._PENALTY_PER_ITEM), 4)
 
-        # Embed vector literal directly in SQL — only :threshold is a bind param
+    async def _batch_vector_search(
+        self, embeddings: np.ndarray, threshold: float
+    ) -> dict[int, dict]:
+        """
+        Find the nearest prohibited pattern for every product in ONE round trip.
+
+        The previous implementation opened a separate `get_session()` — and
+        therefore a separate pooled connection — for each product, then ran them
+        all concurrently via asyncio.gather. With up to 20 products per scan and
+        a pool of 5 (+10 overflow), a single scan could saturate the pool and
+        concurrent scans would block on connection checkout. One batched query
+        on one connection removes that failure mode entirely.
+        """
+        probes = ",\n                ".join(
+            f"({i}, '{to_vector_literal(embeddings[i])}'::vector)"
+            for i in range(len(embeddings))
+        )
+
         query = text(
             f"""
+            WITH probes (idx, embedding) AS (
+                VALUES
+                {probes}
+            )
             SELECT
-                category,
-                pattern_text,
-                1 - (embedding <=> '{vec_literal}'::vector) AS similarity
-            FROM prohibited_patterns
-            WHERE 1 - (embedding <=> '{vec_literal}'::vector) > :threshold
-            ORDER BY similarity DESC
-            LIMIT 3
+                p.idx                                          AS idx,
+                m.category                                     AS category,
+                m.pattern_text                                 AS pattern_text,
+                1 - (m.embedding <=> p.embedding)              AS similarity
+            FROM probes p
+            CROSS JOIN LATERAL (
+                SELECT category, pattern_text, embedding
+                FROM prohibited_patterns
+                ORDER BY embedding <=> p.embedding
+                LIMIT 1
+            ) m
+            WHERE 1 - (m.embedding <=> p.embedding) > :threshold
             """
         )
+
         async with get_session() as session:
             result = await session.execute(query, {"threshold": threshold})
-            return [
-                {
+            return {
+                int(row.idx): {
                     "category": row.category,
                     "pattern_text": row.pattern_text,
                     "similarity": float(row.similarity),
                 }
                 for row in result.fetchall()
-            ]
+            }
 
     async def _count_prohibited_patterns(self) -> int:
         """Check if the prohibited_patterns table has been seeded."""
@@ -202,93 +256,82 @@ class CatalogAgent:
                 flagged_items=[],
             )
 
+        # Bound the work a single scan can do — heading-based product extraction
+        # can otherwise hand us a page's entire outline to embed.
+        limit = self._settings.max_products_per_scan
+        if len(products) > limit:
+            logger.info("Truncating catalog from %d to %d products.", len(products), limit)
+            products = products[:limit]
+
         try:
             pattern_count = await self._count_prohibited_patterns()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — degrade to keywords, never fail the scan
             logger.error("Failed to count prohibited patterns: %s", exc)
-            pattern_count = 0
+            return self._fallback_result(products, error=f"Pattern table unreachable: {exc}")
 
-        # ── Keyword fallback ─────────────────────────────────────────────────
         if pattern_count == 0:
             logger.warning(
                 "prohibited_patterns table is empty — using keyword fallback. "
-                "Run benchmark.py to seed the table."
+                "Seed it with: python3.11 -m razorshield_backend.benchmark"
             )
-            flagged = self._keyword_fallback(products)
-            catalog_score = max(0.0, 1.0 - len(flagged) * 0.15)
-            return CatalogResult(
-                has_prohibited_items=bool(flagged),
-                catalog_score=catalog_score,
-                flagged_items=flagged,
-                checked_via_vectors=False,
-            )
+            return self._fallback_result(products)
 
-        # ── Vector search ────────────────────────────────────────────────────
-        product_texts = [
-            f"{p.title} {p.description}".strip() for p in products
-        ]
+        product_texts = [f"{p.title} {p.description}".strip() for p in products]
 
         try:
-            # Encode all products in one batch (run in thread to not block event loop)
-            embeddings: np.ndarray = await asyncio.to_thread(
-                self._embed_texts, product_texts
-            )
-        except Exception as exc:
+            embeddings: np.ndarray = await asyncio.to_thread(self._embed_texts, product_texts)
+        except Exception as exc:  # noqa: BLE001
             logger.error("Embedding generation failed: %s", exc)
-            # Fall back to keyword matching
-            flagged = self._keyword_fallback(products)
-            return CatalogResult(
-                has_prohibited_items=bool(flagged),
-                catalog_score=max(0.0, 1.0 - len(flagged) * 0.15),
-                flagged_items=flagged,
-                checked_via_vectors=False,
-                agent_error=str(exc),
+            return self._fallback_result(products, error=str(exc))
+
+        expected_dim = self._settings.embedding_dimensions
+        if embeddings.ndim != 2 or embeddings.shape[1] != expected_dim:
+            # A dimension mismatch would make every pgvector comparison error out.
+            logger.error(
+                "Embedding dimension mismatch: model produced %s, schema expects %d.",
+                embeddings.shape,
+                expected_dim,
+            )
+            return self._fallback_result(
+                products,
+                error=f"Embedding dim {embeddings.shape} != expected {expected_dim}",
             )
 
         threshold = self._settings.prohibited_similarity_threshold
+
+        try:
+            matches = await self._batch_vector_search(embeddings, threshold)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Vector search failed: %s", exc)
+            return self._fallback_result(products, error=str(exc))
+
         flagged: list[FlaggedItem] = []
-
-        # Query vector DB for each product embedding concurrently
-        search_tasks = [
-            self._vector_search(embeddings[i], threshold)
-            for i in range(len(products))
-        ]
-        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
-
-        for i, result in enumerate(search_results):
-            if isinstance(result, Exception):
-                logger.warning("Vector search error for product %d: %s", i, result)
+        seen_titles: set[str] = set()
+        for idx in sorted(matches):
+            if idx >= len(products):
                 continue
-            for match in result:
-                flagged.append(
-                    FlaggedItem(
-                        product_title=products[i].title,
-                        matched_category=match["category"],
-                        matched_pattern=match["pattern_text"],
-                        similarity_score=match["similarity"],
-                    )
+            title = products[idx].title
+            if title in seen_titles:
+                continue
+            seen_titles.add(title)
+            match = matches[idx]
+            flagged.append(
+                FlaggedItem(
+                    product_title=title,
+                    matched_category=match["category"],
+                    matched_pattern=match["pattern_text"],
+                    similarity_score=match["similarity"],
                 )
-                break  # one flag per product is sufficient
-
-        # Deduplicate by product title
-        seen: set[str] = set()
-        unique_flagged: list[FlaggedItem] = []
-        for item in flagged:
-            if item.product_title not in seen:
-                seen.add(item.product_title)
-                unique_flagged.append(item)
-
-        # Score: starts at 1.0, reduced by 0.15 per unique flagged item
-        catalog_score = max(0.0, 1.0 - len(unique_flagged) * 0.15)
+            )
 
         logger.info(
             "Catalog check: %d products checked, %d flagged (vector search)",
             len(products),
-            len(unique_flagged),
+            len(flagged),
         )
 
         return CatalogResult(
-            has_prohibited_items=bool(unique_flagged),
-            catalog_score=catalog_score,
-            flagged_items=unique_flagged,
+            has_prohibited_items=bool(flagged),
+            catalog_score=self._score_for(len(flagged)),
+            flagged_items=flagged,
         )

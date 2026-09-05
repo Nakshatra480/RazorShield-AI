@@ -1,187 +1,116 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  Terminal,
-  Download,
-  ShieldAlert,
-  CheckCircle,
-  AlertTriangle,
-  XCircle,
-  Info,
-} from "lucide-react";
-import type { ScanResult, AuditStep } from "@/lib/mockData";
+import { AlertTriangle, CheckCircle2, Download, FileText, Info, XCircle } from "lucide-react";
+import type { AuditStep, ScanResult } from "@/lib/types";
 
-const LEVEL_STYLES = {
-  info: {
-    icon: Info,
-    cls: "text-blue-400",
-    prefix: "INFO ",
-    agentCls: "text-slate-500",
-  },
-  warn: {
-    icon: AlertTriangle,
-    cls: "text-amber-400",
-    prefix: "WARN ",
-    agentCls: "text-amber-500",
-  },
-  error: {
-    icon: XCircle,
-    cls: "text-red-400",
-    prefix: "ERR  ",
-    agentCls: "text-red-500",
-  },
-  success: {
-    icon: CheckCircle,
-    cls: "text-emerald-400",
-    prefix: "OK   ",
-    agentCls: "text-emerald-500",
-  },
-};
+const LEVEL_META = {
+  info: { Icon: Info, cls: "text-brand", label: "INFO" },
+  warn: { Icon: AlertTriangle, cls: "text-risk-warn", label: "WARN" },
+  error: { Icon: XCircle, cls: "text-risk-danger", label: "ERROR" },
+  success: { Icon: CheckCircle2, cls: "text-risk-safe", label: "OK" },
+} as const;
 
-function AuditLine({ step, index }: { step: AuditStep; index: number }) {
-  const [visible, setVisible] = useState(false);
-  const style = LEVEL_STYLES[step.level];
-
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), index * 90);
-    return () => clearTimeout(t);
-  }, [index]);
-
-  if (!visible) return null;
-
+function AuditLine({ step }: { step: AuditStep }) {
+  const meta = LEVEL_META[step.level];
+  const { Icon } = meta;
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -4 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.2 }}
-      className="flex items-start gap-2 py-0.5 hover:bg-white/[0.02] px-2 -mx-2 rounded group"
-    >
-      <span className="text-slate-700 select-none mt-0.5 flex-shrink-0 font-mono text-xs">
+    <li className="flex items-start gap-3 py-2 border-b border-line last:border-0">
+      <Icon className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${meta.cls}`} aria-hidden />
+      <span className="font-mono text-[11px] text-ink-4 tabular-nums flex-shrink-0 mt-px hidden sm:inline">
         {step.timestamp}
       </span>
-      <span className={`font-mono text-xs flex-shrink-0 mt-0.5 ${style.cls}`}>
-        {style.prefix}
-      </span>
-      <span className={`font-mono text-xs flex-shrink-0 mt-0.5 w-24 truncate ${style.agentCls}`}>
-        [{step.agent}]
-      </span>
-      <div className="flex-1 min-w-0">
-        <span className="text-xs font-mono text-slate-400 mr-2">{step.action}</span>
-        <span className="text-xs font-mono text-slate-300">{step.result}</span>
-      </div>
-    </motion.div>
+      <span className="text-[13px] text-ink-2 leading-relaxed min-w-0">{step.result}</span>
+    </li>
   );
 }
 
-interface AuditTrailProps {
-  result: ScanResult;
-}
+export default function AuditTrail({ result }: { result: ScanResult }) {
+  const [exported, setExported] = useState(false);
 
-export default function AuditTrail({ result }: AuditTrailProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [overrideOpen, setOverrideOpen] = useState(false);
+  /**
+   * Export the verdict as a JSON file. This is a real download of the actual
+   * scan record — the previous build showed an "Export PDF" button wired to an
+   * alert() placeholder, and an "Override Decision" panel whose Approve button
+   * did nothing. A control that appears to record an underwriting override but
+   * silently discards it is worse than no control, so that panel is gone until
+   * there is an endpoint behind it.
+   */
+  const handleExport = useCallback(() => {
+    const payload = {
+      domain: result.domain,
+      url: result.url,
+      risk_score: result.riskScore,
+      risk_level: result.riskLevel,
+      scanned_at: result.scannedAt,
+      duration_ms: result.totalDurationMs,
+      fully_analyzed: result.fullyAnalyzed,
+      degraded_reasons: result.degradedReasons,
+      key_drivers: result.keyDrivers,
+      agents: result.agents.map((a) => ({
+        id: a.id,
+        name: a.name,
+        score: a.confidence,
+        summary: a.summary,
+        findings: a.findings,
+      })),
+      audit_trail: result.auditTrail.map((s) => s.result),
+    };
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [result.auditTrail]);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = `razorshield-${result.domain.replace(/[^a-z0-9.-]/gi, "_")}-${result.scannedAt.slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(href);
+
+    setExported(true);
+    setTimeout(() => setExported(false), 2500);
+  }, [result]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
+    <motion.section
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.3, duration: 0.4 }}
-      className="rounded-xl border border-slate-800 bg-surface overflow-hidden"
+      transition={{ delay: 0.2, duration: 0.35 }}
+      className="rounded-xl border border-line bg-surface shadow-card overflow-hidden"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
-        <div className="flex items-center gap-2">
-          <Terminal className="w-3.5 h-3.5 text-slate-500" />
-          <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-            Audit & Decision Trail
-          </span>
-          <span className="text-xs font-mono text-slate-600">
-            · {result.auditTrail.length} events
+      <div className="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-line">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="w-4 h-4 text-ink-3 flex-shrink-0" aria-hidden />
+          <h2 className="text-[13px] font-semibold text-ink">Audit &amp; decision trail</h2>
+          <span className="text-[12px] text-ink-3 font-mono flex-shrink-0">
+            {result.auditTrail.length} entries
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            id="export-audit-pdf-btn"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors font-medium"
-            onClick={() => alert("PDF export — connect your backend to generate report")}
-          >
-            <Download className="w-3 h-3" />
-            Export PDF
-          </button>
-          <button
-            id="override-decision-btn"
-            onClick={() => setOverrideOpen(!overrideOpen)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-indigo-900/40 hover:bg-indigo-800/50 text-indigo-400 border border-indigo-800/50 transition-colors font-medium"
-          >
-            <ShieldAlert className="w-3 h-3" />
-            Override Decision
-          </button>
-        </div>
-      </div>
-
-      {/* Override Panel */}
-      {overrideOpen && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          className="border-b border-slate-800 bg-indigo-950/20 px-5 py-3"
+        <button
+          id="export-audit-btn"
+          onClick={handleExport}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border border-line-strong text-ink-2 bg-surface hover:bg-surface-muted transition-colors flex-shrink-0"
         >
-          <p className="text-xs text-slate-400 mb-2">
-            Manual override reason — will be logged to audit trail:
-          </p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Enter justification for override..."
-              className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-xs font-mono text-slate-300 outline-none focus:border-indigo-500/60 placeholder:text-slate-600"
-            />
-            <button className="px-4 py-2 text-xs rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors">
-              Approve Override
-            </button>
-            <button
-              onClick={() => setOverrideOpen(false)}
-              className="px-3 py-2 text-xs rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Terminal body */}
-      <div
-        ref={scrollRef}
-        className="terminal-panel px-4 py-4 max-h-80 overflow-auto"
-      >
-        {/* Cursor header */}
-        <div className="text-slate-600 font-mono text-xs mb-3 pb-2 border-b border-slate-800/60">
-          <span className="text-blue-500">razorshield</span>
-          <span className="text-slate-500">@inspector</span>
-          <span className="text-slate-600">:~$ </span>
-          <span className="text-slate-400">
-            audit --domain {result.domain} --full-trace
-          </span>
-        </div>
-
-        <div className="space-y-0.5">
-          {result.auditTrail.map((step, i) => (
-            <AuditLine key={i} step={step} index={i} />
-          ))}
-        </div>
-
-        {/* Trailing cursor */}
-        <div className="mt-2 text-slate-600 font-mono text-xs typewriter-cursor">
-          &nbsp;
-        </div>
+          <Download className="w-3.5 h-3.5" aria-hidden />
+          {exported ? "Downloaded" : "Export JSON"}
+        </button>
       </div>
-    </motion.div>
+
+      <div className="px-5 py-2 max-h-[22rem] overflow-auto">
+        {result.auditTrail.length === 0 ? (
+          <p className="py-6 text-center text-[13px] text-ink-3">
+            No audit entries were recorded for this scan.
+          </p>
+        ) : (
+          <ul>
+            {result.auditTrail.map((step, i) => (
+              <AuditLine key={i} step={step} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </motion.section>
   );
 }

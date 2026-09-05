@@ -1,152 +1,150 @@
 "use client";
-import React, { useState } from "react";
+import React from "react";
 import { motion } from "framer-motion";
 import { useBenchmarkData } from "@/hooks/useBenchmarkData";
 
+/**
+ * 2×2 outcome matrix.
+ *
+ * The four cells are *states*, not a series, so they carry status colour
+ * (correct → good, false decline → warning, missed fraud → critical) rather
+ * than categorical hues. Each cell is also labelled in text, so the meaning
+ * never depends on colour alone.
+ */
 interface Cell {
-  label: string;
-  sublabel: string;
+  key: "TP" | "FP" | "FN" | "TN";
+  title: string;
   value: number;
-  bg: string;
-  text: string;
-  border: string;
-  definition: string;
+  tone: string;
+  meaning: string;
 }
 
-const TOOLTIP_DEFS: Record<string, string> = {
-  TP: "True Positives: Risky merchants correctly blocked by the system.",
-  FP: "False Positives: Safe merchants incorrectly flagged. Minimizing this reduces friction.",
-  TN: "True Negatives: Safe merchants correctly approved.",
-  FN: "False Negatives: Risky merchants incorrectly approved. Minimizing this reduces fraud loss.",
-};
-
 export default function ConfusionMatrix() {
-  const [tooltip, setTooltip] = useState<string | null>(null);
   const { data } = useBenchmarkData();
   const cm = data.confusionMatrix;
   const total = cm.truePositive + cm.falsePositive + cm.trueNegative + cm.falseNegative;
+  const hasData = total > 0 && !data.isMock;
 
+  // Row = actual, column = predicted. Reading order matches the axis labels.
   const cells: Cell[] = [
     {
-      label: "True Positive",
-      sublabel: "TP",
+      key: "TP",
+      title: "True positive",
       value: cm.truePositive,
-      bg: "bg-emerald-950/50",
-      text: "text-emerald-400",
-      border: "border-emerald-800/50",
-      definition: TOOLTIP_DEFS.TP,
+      tone: "border-risk-safe-border bg-risk-safe-soft text-risk-safe",
+      meaning: "Risky merchant correctly blocked",
     },
     {
-      label: "False Positive",
-      sublabel: "FP",
-      value: cm.falsePositive,
-      bg: "bg-amber-950/30",
-      text: "text-amber-400",
-      border: "border-amber-800/40",
-      definition: TOOLTIP_DEFS.FP,
-    },
-    {
-      label: "False Negative",
-      sublabel: "FN",
+      key: "FN",
+      title: "False negative",
       value: cm.falseNegative,
-      bg: "bg-red-950/40",
-      text: "text-red-400",
-      border: "border-red-800/40",
-      definition: TOOLTIP_DEFS.FN,
+      tone: "border-risk-danger-border bg-risk-danger-soft text-risk-danger",
+      meaning: "Risky merchant wrongly approved — the costly error",
     },
     {
-      label: "True Negative",
-      sublabel: "TN",
+      key: "FP",
+      title: "False positive",
+      value: cm.falsePositive,
+      tone: "border-risk-warn-border bg-risk-warn-soft text-risk-warn",
+      meaning: "Safe merchant wrongly blocked — adds onboarding friction",
+    },
+    {
+      key: "TN",
+      title: "True negative",
       value: cm.trueNegative,
-      bg: "bg-blue-950/30",
-      text: "text-blue-400",
-      border: "border-blue-800/40",
-      definition: TOOLTIP_DEFS.TN,
+      tone: "border-risk-safe-border bg-risk-safe-soft text-risk-safe",
+      meaning: "Safe merchant correctly approved",
     },
   ];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2, duration: 0.4 }}
-      className="rounded-xl border border-slate-800 bg-surface p-5"
-    >
+    <section className="rounded-xl border border-line bg-surface shadow-card p-5">
       <div className="mb-4">
-        <h3 className="text-sm font-semibold text-white">Confusion Matrix</h3>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Evaluated on {total} merchant samples
-          {!data.isMock && " (live benchmark)"}
-          {" "}— hover cells for definitions
+        <h2 className="text-[15px] font-semibold text-ink">Outcome matrix</h2>
+        <p className="text-[12px] text-ink-3 mt-0.5">
+          {hasData
+            ? `${total} labelled merchants from the most recent run`
+            : "Run a benchmark to populate this matrix"}
         </p>
       </div>
 
-      {/* Axis labels */}
-      <div className="relative">
-        {/* Y-axis label */}
-        <div className="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90">
-          <span className="text-xs text-slate-600 font-mono whitespace-nowrap">
-            Actual →
-          </span>
-        </div>
+      {/* Column headers */}
+      <div className="grid grid-cols-[auto_1fr_1fr] gap-2 items-center">
+        <span aria-hidden />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3 text-center pb-1">
+          Predicted risky
+        </span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3 text-center pb-1">
+          Predicted safe
+        </span>
 
-        {/* X-axis label */}
-        <div className="text-center mb-1">
-          <span className="text-xs text-slate-600 font-mono">Predicted →</span>
-        </div>
+        {/* Row: actually risky */}
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3 pr-1 text-right leading-tight">
+          Actually
+          <br />
+          risky
+        </span>
+        {[cells[0], cells[1]].map((cell, i) => (
+          <MatrixCell key={cell.key} cell={cell} total={total} hasData={hasData} delay={i * 0.06} />
+        ))}
 
-        {/* Column headers */}
-        <div className="grid grid-cols-2 gap-1 mb-1 ml-6">
-          <div className="text-center text-xs text-slate-500 font-mono py-1 bg-slate-900/50 rounded">
-            Predicted Risky
-          </div>
-          <div className="text-center text-xs text-slate-500 font-mono py-1 bg-slate-900/50 rounded">
-            Predicted Safe
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-1 ml-6">
-          {cells.map((cell, i) => (
-            <div
-              key={cell.sublabel}
-              className="relative"
-              onMouseEnter={() => setTooltip(cell.sublabel)}
-              onMouseLeave={() => setTooltip(null)}
-            >
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: 0.3 + i * 0.08 }}
-                className={`rounded-lg border ${cell.bg} ${cell.border} p-4 cursor-default text-center`}
-              >
-                <div className={`text-2xl font-bold tabular-nums ${cell.text}`}>
-                  {cell.value}
-                </div>
-                <div className={`text-xs font-mono font-bold mt-0.5 ${cell.text} opacity-80`}>
-                  {cell.sublabel}
-                </div>
-                <div className="text-xs text-slate-500 mt-0.5">{cell.label}</div>
-                <div className="text-xs text-slate-600 mt-1 font-mono">
-                  {total > 0 ? ((cell.value / total) * 100).toFixed(1) : "0.0"}%
-                </div>
-              </motion.div>
-
-              {/* Tooltip */}
-              {tooltip === cell.sublabel && (
-                <motion.div
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-52 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 z-20 pointer-events-none"
-                >
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {cell.definition}
-                  </p>
-                </motion.div>
-              )}
-            </div>
-          ))}
-        </div>
+        {/* Row: actually safe */}
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3 pr-1 text-right leading-tight">
+          Actually
+          <br />
+          safe
+        </span>
+        {[cells[2], cells[3]].map((cell, i) => (
+          <MatrixCell
+            key={cell.key}
+            cell={cell}
+            total={total}
+            hasData={hasData}
+            delay={(i + 2) * 0.06}
+          />
+        ))}
       </div>
+
+      <dl className="mt-4 pt-4 border-t border-line space-y-1.5">
+        {cells.map((cell) => (
+          <div key={cell.key} className="flex items-start gap-2 text-[12px]">
+            <dt className="font-mono font-semibold text-ink-2 w-6 flex-shrink-0">{cell.key}</dt>
+            <dd className="text-ink-3 leading-snug">{cell.meaning}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function MatrixCell({
+  cell,
+  total,
+  hasData,
+  delay,
+}: {
+  cell: Cell;
+  total: number;
+  hasData: boolean;
+  delay: number;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ delay, duration: 0.25 }}
+      className={`rounded-lg border p-4 text-center ${cell.tone}`}
+    >
+      <div className="text-[26px] font-semibold tabular-nums leading-none">
+        {hasData ? cell.value : "—"}
+      </div>
+      <div className="text-[11px] font-semibold mt-1.5 opacity-90">{cell.key}</div>
+      <div className="text-[11px] text-ink-3 mt-0.5">{cell.title}</div>
+      {hasData && total > 0 && (
+        <div className="text-[11px] text-ink-4 mt-1 tabular-nums">
+          {((cell.value / total) * 100).toFixed(1)}%
+        </div>
+      )}
     </motion.div>
   );
 }

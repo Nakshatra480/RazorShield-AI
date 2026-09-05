@@ -1,17 +1,19 @@
 /**
  * hooks/useMerchantScan.ts
  * ──────────────────────────────────────────────────────────────────────
- * Replaces useScanSimulation — makes REAL calls to POST /api/v1/inspect.
+ * Drives POST /api/v1/inspect and maps the backend ScanReport into the
+ * ScanResult shape the UI components consume.
  *
- * While the API processes (~15-60s), we animate a 4-step pipeline progress
- * display using timed milestones so the UI feels live and responsive.
- * Once the response lands, we map the backend ScanReport → frontend ScanResult.
+ * While the API works (typically 15–60s) a coarse progress indicator advances
+ * through the three agents. The backend does not stream per-agent progress, so
+ * these are presentational milestones — the real result replaces all of it on
+ * arrival.
  */
-
 "use client";
-import { useState, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { inspectMerchant, type ScanReport } from "@/lib/api";
-import type { ScanResult, AgentStatus } from "@/lib/mockData";
+import type { AgentStatus, ScanResult } from "@/lib/types";
+import { scoreToRiskLevel } from "@/lib/utils";
 
 export interface ScanState {
   phase: "idle" | "scanning" | "complete" | "error";
@@ -35,81 +37,149 @@ const INITIAL_STATE: ScanState = {
   errorMessage: null,
 };
 
-// ─── Map backend risk_tier → frontend RiskLevel ────────────────────────────────
 function mapRiskTier(tier: string): "SAFE" | "NEEDS_REVIEW" | "HIGH_RISK" {
   if (tier === "SAFE") return "SAFE";
   if (tier === "HIGH_RISK") return "HIGH_RISK";
   return "NEEDS_REVIEW"; // MANUAL_REVIEW → NEEDS_REVIEW
 }
 
-// ─── Convert raw ScanReport → ScanResult consumed by UI components ─────────────
+/** Pull the degraded-analysis block the backend attaches to findings. */
+function readAnalysisQuality(report: ScanReport): {
+  fullyAnalyzed: boolean;
+  degradedReasons: string[];
+} {
+  const quality = (report.findings?.analysis_quality ?? {}) as {
+    fully_analyzed?: boolean;
+    degraded_reasons?: string[];
+  };
+  return {
+    fullyAnalyzed: quality.fully_analyzed ?? report.fully_analyzed ?? true,
+    degradedReasons: Array.isArray(quality.degraded_reasons)
+      ? quality.degraded_reasons
+      : [],
+  };
+}
+
 function mapReport(report: ScanReport, url: string, durationMs: number): ScanResult {
   const d = report.domain_info;
   const p = report.policy_result;
   const c = report.catalog_result;
+  const { fullyAnalyzed, degradedReasons } = readAnalysisQuality(report);
+
+  const ageLabel =
+    d.domain_age_days >= 0 ? `${d.domain_age_days} days` : "unknown (WHOIS unavailable)";
 
   const footprintSnippet = [
     `WHOIS — ${report.domain}`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `Registrar:   ${d.registrar}`,
-    `Created:     ${d.registration_date ?? "unknown"} (${d.domain_age_days} days ago)`,
+    `Registrar:  ${d.registrar || "unknown"}`,
+    `Created:    ${d.registration_date ?? "unknown"}`,
+    `Age:        ${ageLabel}`,
     ``,
-    `SSL CERTIFICATE`,
-    `  Valid:     ${d.is_ssl_valid ? "YES" : "NO"}`,
-    `  Expiry:    ${d.ssl_expiry_days} days remaining`,
+    `TLS CERTIFICATE`,
+    `  Valid:    ${d.is_ssl_valid ? "yes" : "no"}`,
+    `  Expires:  ${d.ssl_expiry_days >= 0 ? `in ${d.ssl_expiry_days} days` : "unknown"}`,
   ].join("\n");
 
   const catalogSnippet = c.flagged_items.length
     ? [
-        `PRODUCT CATALOG SCAN — ${report.domain}`,
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `CATALOG SCAN — ${report.domain}`,
+        `Method: ${c.checked_via_vectors ? "pgvector cosine similarity" : "keyword fallback"}`,
+        ``,
         ...c.flagged_items.map(
           (fi) =>
-            `⚠ ${fi.product_title}\n  → Category: ${fi.matched_category} (similarity: ${(fi.similarity_score * 100).toFixed(0)}%)`
+            `! ${fi.product_title}\n    category:   ${fi.matched_category}\n    matched:    ${fi.matched_pattern}\n    similarity: ${(fi.similarity_score * 100).toFixed(1)}%`
         ),
       ].join("\n")
-    : `PRODUCT CATALOG SCAN — ${report.domain}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nNo prohibited items detected.`;
+    : [
+        `CATALOG SCAN — ${report.domain}`,
+        `Method: ${c.checked_via_vectors ? "pgvector cosine similarity" : "keyword fallback"}`,
+        ``,
+        `No prohibited items detected.`,
+      ].join("\n");
 
-  const policySnippet = [
-    `POLICY ANALYSIS — ${report.domain}`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `Compliance Score: ${(p.policy_score * 100).toFixed(0)}/100`,
-    `Status: ${p.is_compliant ? "COMPLIANT" : "NON-COMPLIANT"}`,
-    p.missing_disclosures.length
-      ? `Missing Disclosures:\n${p.missing_disclosures.map((m) => `  → ${m}`).join("\n")}`
-      : `All required disclosures found.`,
-  ].join("\n");
+  // When the site blocked inspection, policy_score is a placeholder, not a
+  // measurement — the UI must not render it as a compliance failure.
+  const policyUnverified = p.inconclusive === true;
 
-  // Parse the backend audit trail (plain string) into AuditStep array
+  const policySnippet = (
+    policyUnverified
+      ? [
+          `POLICY ANALYSIS — ${report.domain}`,
+          `Status:       NOT VERIFIABLE`,
+          `Reason:       ${p.agent_error ?? "site blocked automated inspection"}`,
+          ``,
+          `No policy documents could be read, so compliance is unknown.`,
+          `This signal was excluded from the risk score rather than counted`,
+          `as a failure. Manual review is required.`,
+        ]
+      : [
+          `POLICY ANALYSIS — ${report.domain}`,
+          `Evaluated by: ${p.evaluated_by ?? "llm"}`,
+          `Compliance:   ${(p.policy_score * 100).toFixed(0)}/100`,
+          `Status:       ${p.is_compliant ? "COMPLIANT" : "NON-COMPLIANT"}`,
+          ``,
+          p.missing_disclosures.length
+            ? `Missing disclosures:\n${p.missing_disclosures.map((m) => `  - ${m}`).join("\n")}`
+            : `All required disclosures found.`,
+          p.agent_error ? `\nNote: ${p.agent_error}` : "",
+        ]
+  )
+    .filter(Boolean)
+    .join("\n");
+
+  // The audit narrative is prose from the backend; render each sentence/line as
+  // its own step. Timestamps are not fabricated — the scan's own time is used.
   const auditLines = report.audit_trail
     .split("\n")
+    .map((l) => l.trim())
     .filter(Boolean)
-    .map((line, i) => ({
-      timestamp: new Date(Date.now() - (report.audit_trail.split("\n").length - i) * 800)
-        .toISOString()
-        .slice(11, 23),
+    .map((line) => ({
+      timestamp: new Date(report.created_at).toISOString().slice(11, 19),
       agent: "ORCHESTRATOR",
-      action: "AUDIT_LOG",
+      action: "AUDIT",
       result: line,
-      level: line.includes("⚠") || line.includes("WARNING")
+      level: /guardrail|override|prohibited|failed|non-compliant/i.test(line)
         ? ("warn" as const)
-        : line.includes("ERROR") || line.includes("failed")
+        : /error|unavailable/i.test(line)
         ? ("error" as const)
-        : line.includes("complete") || line.includes("✓")
+        : /final verdict|completed/i.test(line)
         ? ("success" as const)
         : ("info" as const),
     }));
 
   const keyDrivers: string[] = [];
-  if (d.domain_age_days < 180)
+  if (d.domain_age_days >= 0 && d.domain_age_days < 180) {
     keyDrivers.push(`Domain is only ${d.domain_age_days} days old — elevated fraud signal`);
-  if (!p.is_compliant)
-    keyDrivers.push(`Policy non-compliant — score: ${(p.policy_score * 100).toFixed(0)}/100`);
-  if (c.has_prohibited_items)
-    keyDrivers.push(`${c.flagged_items.length} prohibited product(s) detected via pgvector search`);
-  if (!d.is_ssl_valid) keyDrivers.push("SSL certificate invalid or expired");
-  if (report.guardrail_triggered && report.guardrail_reason)
+  } else if (d.domain_age_days < 0) {
+    keyDrivers.push("Domain age could not be verified via WHOIS — treated as uncertain");
+  }
+  if (policyUnverified) {
+    keyDrivers.push(
+      `Policy compliance could not be verified — the site blocked automated inspection. Manual review required.`
+    );
+  } else if (!p.is_compliant) {
+    keyDrivers.push(
+      `Policy non-compliant (${(p.policy_score * 100).toFixed(0)}/100): ${
+        p.missing_disclosures.slice(0, 2).join("; ") || "key disclosures missing"
+      }`
+    );
+  }
+  if (c.has_prohibited_items) {
+    keyDrivers.push(
+      `${c.flagged_items.length} prohibited product${
+        c.flagged_items.length === 1 ? "" : "s"
+      } detected in the catalogue`
+    );
+  }
+  if (!d.is_ssl_valid) keyDrivers.push("TLS certificate is invalid or expired");
+  if (report.guardrail_triggered && report.guardrail_reason) {
     keyDrivers.push(`Guardrail: ${report.guardrail_reason}`);
+  }
+
+  // The backend reports total pipeline time; it does not break time down per
+  // agent (they run concurrently). Report the measured total on each rather
+  // than inventing a 35/40/25 split as the previous build did.
+  const agentDuration = report.processing_time_ms || durationMs;
 
   return {
     domain: report.domain,
@@ -118,113 +188,175 @@ function mapReport(report: ScanReport, url: string, durationMs: number): ScanRes
     riskLevel: mapRiskTier(report.risk_tier),
     scannedAt: report.created_at,
     totalDurationMs: durationMs,
-    keyDrivers: keyDrivers.length ? keyDrivers : ["No significant risk factors detected."],
+    fullyAnalyzed,
+    degradedReasons,
+    keyDrivers: keyDrivers.length
+      ? keyDrivers
+      : ["No significant risk factors detected across policy, catalogue, or domain checks."],
     agents: [
       {
         id: "policy",
-        name: "Policy Sub-Agent",
+        name: policyUnverified ? "Policy compliance (unverified)" : "Policy compliance",
         emoji: "🛡️",
-        description: "Scraping & analyzing T&C, Privacy & Refund Policy",
+        description: "Terms, privacy, refund, and contact disclosures",
         status: "complete",
-        durationMs: Math.round(durationMs * 0.35),
-        confidence: Math.round(p.policy_score * 100),
-        summary: p.is_compliant
-          ? "All required policy disclosures found and compliant."
-          : `Non-compliant. Missing: ${p.missing_disclosures.join(", ") || "key disclosures"}`,
+        durationMs: agentDuration,
+        confidence: policyUnverified ? 0 : Math.round(p.policy_score * 100),
+        summary: policyUnverified
+          ? "Not verifiable — the site blocked automated inspection, so compliance is unknown. Excluded from the risk score."
+          : p.is_compliant
+          ? `All required disclosures found (${(p.policy_score * 100).toFixed(0)}/100).`
+          : `Non-compliant (${(p.policy_score * 100).toFixed(0)}/100). Missing: ${
+              p.missing_disclosures.join(", ") || "key disclosures"
+            }`,
         snippet: policySnippet,
-        findings: [
-          {
-            id: "p1",
-            label: "Compliance Score",
-            value: `${(p.policy_score * 100).toFixed(0)}/100`,
-            severity: p.policy_score > 0.6 ? "info" : p.policy_score > 0.3 ? "warning" : "critical",
-          },
-          {
-            id: "p2",
-            label: "Overall Status",
-            value: p.is_compliant ? "Compliant" : "Non-Compliant",
-            severity: p.is_compliant ? "info" : "critical",
-          },
-          ...p.missing_disclosures.slice(0, 3).map((d, i) => ({
-            id: `p${i + 3}`,
-            label: "Missing",
-            value: d,
-            severity: "warning" as const,
-          })),
-        ],
+        findings: policyUnverified
+          ? [
+              {
+                id: "p1",
+                label: "Compliance score",
+                value: "Not verifiable",
+                severity: "warning" as const,
+              },
+              {
+                id: "p2",
+                label: "Reason",
+                value: p.agent_error ?? "Site blocked automated inspection",
+                severity: "warning" as const,
+              },
+              {
+                id: "p3",
+                label: "Effect on score",
+                value: "Excluded — not counted as a failure",
+                severity: "info" as const,
+              },
+            ]
+          : [
+              {
+                id: "p1",
+                label: "Compliance score",
+                value: `${(p.policy_score * 100).toFixed(0)}/100`,
+                severity:
+                  p.policy_score > 0.6 ? "info" : p.policy_score > 0.3 ? "warning" : "critical",
+              },
+              {
+                id: "p2",
+                label: "Status",
+                value: p.is_compliant ? "Compliant" : "Non-compliant",
+                severity: p.is_compliant ? "info" : "critical",
+              },
+              {
+                id: "p3",
+                label: "Evaluated by",
+                value: p.evaluated_by === "llm" ? "LLM analysis" : "Rule-based fallback",
+                severity: p.evaluated_by === "llm" ? "info" : "warning",
+              },
+              ...p.missing_disclosures.slice(0, 3).map((m, i) => ({
+                id: `p${i + 4}`,
+                label: "Missing",
+                value: m,
+                severity: "warning" as const,
+              })),
+            ],
       },
       {
         id: "catalog",
-        name: "Catalog Sub-Agent",
+        name: "Catalog safety",
         emoji: "📦",
-        description: "Analyzing restricted products via pgvector similarity search",
+        description: "Prohibited-goods detection via vector similarity",
         status: "complete",
-        durationMs: Math.round(durationMs * 0.4),
+        durationMs: agentDuration,
         confidence: Math.round(c.catalog_score * 100),
         summary: c.has_prohibited_items
-          ? `${c.flagged_items.length} prohibited item(s) detected via pgvector cosine similarity.`
-          : "No prohibited products found in the merchant catalog.",
+          ? `${c.flagged_items.length} prohibited item${
+              c.flagged_items.length === 1 ? "" : "s"
+            } detected.`
+          : "No prohibited products found in the merchant catalogue.",
         snippet: catalogSnippet,
         findings: [
           {
             id: "c1",
-            label: "Prohibited Items",
+            label: "Prohibited items",
             value: c.has_prohibited_items ? `${c.flagged_items.length} flagged` : "None",
             severity: c.has_prohibited_items ? "critical" : "info",
           },
           {
             id: "c2",
-            label: "Catalog Score",
+            label: "Catalog score",
             value: `${(c.catalog_score * 100).toFixed(0)}/100`,
             severity: c.catalog_score > 0.7 ? "info" : "warning",
           },
           {
             id: "c3",
-            label: "Vector Search",
+            label: "Method",
             value: c.checked_via_vectors ? "pgvector cosine similarity" : "Keyword fallback",
-            severity: "info",
+            severity: c.checked_via_vectors ? "info" : "warning",
           },
-          ...c.flagged_items.slice(0, 2).map((fi, i) => ({
+          ...c.flagged_items.slice(0, 3).map((fi, i) => ({
             id: `c${i + 4}`,
             label: fi.matched_category,
-            value: fi.product_title.slice(0, 40),
+            value: fi.product_title.slice(0, 48),
             severity: "critical" as const,
           })),
         ],
       },
       {
         id: "footprint",
-        name: "Digital Footprint Sub-Agent",
+        name: "Digital footprint",
         emoji: "🌐",
-        description: "WHOIS, SSL, domain age & hosting analysis",
+        description: "WHOIS registration age and TLS certificate",
         status: "complete",
-        durationMs: Math.round(durationMs * 0.25),
-        confidence: Math.min(95, 60 + d.domain_age_days / 30),
-        summary: `Domain ${d.domain_age_days} days old. SSL ${d.is_ssl_valid ? "valid" : "INVALID"}, expires in ${d.ssl_expiry_days} days. Registrar: ${d.registrar}.`,
+        durationMs: agentDuration,
+        // Confidence reflects how much the domain signal can be trusted:
+        // an unresolved WHOIS lookup is low confidence, not high.
+        confidence:
+          d.domain_age_days < 0
+            ? 25
+            : Math.min(95, 55 + Math.round(d.domain_age_days / 40)),
+        // Registrar names often already end in a period ("SafeNames Ltd."),
+        // so trim before appending the sentence terminator.
+        summary:
+          `Domain age ${ageLabel}. TLS ${d.is_ssl_valid ? "valid" : "invalid"}` +
+          (d.ssl_expiry_days >= 0 ? `, expires in ${d.ssl_expiry_days} days` : "") +
+          `. Registrar: ${(d.registrar || "unknown").replace(/\.+$/, "")}.`,
         snippet: footprintSnippet,
         findings: [
           {
             id: "f1",
-            label: "Domain Age",
-            value: `${d.domain_age_days} days`,
-            severity: d.domain_age_days < 90 ? "critical" : d.domain_age_days < 365 ? "warning" : "info",
+            label: "Domain age",
+            value: ageLabel,
+            severity:
+              d.domain_age_days < 0
+                ? "warning"
+                : d.domain_age_days < 90
+                ? "critical"
+                : d.domain_age_days < 365
+                ? "warning"
+                : "info",
           },
           {
             id: "f2",
-            label: "SSL Status",
-            value: d.is_ssl_valid ? "Valid" : "INVALID",
+            label: "TLS status",
+            value: d.is_ssl_valid ? "Valid" : "Invalid",
             severity: d.is_ssl_valid ? "info" : "critical",
           },
           {
             id: "f3",
-            label: "SSL Expiry",
-            value: `${d.ssl_expiry_days} days`,
-            severity: d.ssl_expiry_days < 14 ? "critical" : d.ssl_expiry_days < 30 ? "warning" : "info",
+            label: "TLS expiry",
+            value: d.ssl_expiry_days >= 0 ? `${d.ssl_expiry_days} days` : "unknown",
+            severity:
+              d.ssl_expiry_days < 0
+                ? "warning"
+                : d.ssl_expiry_days < 14
+                ? "critical"
+                : d.ssl_expiry_days < 30
+                ? "warning"
+                : "info",
           },
           {
             id: "f4",
             label: "Registrar",
-            value: d.registrar,
+            value: d.registrar || "unknown",
             severity: "info",
           },
         ],
@@ -234,97 +366,124 @@ function mapReport(report: ScanReport, url: string, durationMs: number): ScanRes
   };
 }
 
-// ─── Progressive animation milestones while API runs ──────────────────────────
-//
-// The real API takes 15–60s. We show animated agent steps at fixed offsets
-// so the user sees progress. The API result replaces everything when ready.
-const PROGRESS_MILESTONES = [
-  { delay: 800,  agent: "policy",    status: "running" as AgentStatus, progress: 10, idx: 0 },
-  { delay: 5000, agent: "catalog",   status: "running" as AgentStatus, progress: 35, idx: 1 },
-  { delay: 9000, agent: "policy",    status: "complete" as AgentStatus, progress: 50, idx: 1 },
-  { delay: 12000,agent: "footprint", status: "running" as AgentStatus, progress: 65, idx: 2 },
-  { delay: 16000,agent: "catalog",   status: "complete" as AgentStatus, progress: 75, idx: 2 },
-  { delay: 20000,agent: "footprint", status: "complete" as AgentStatus, progress: 88, idx: 2 },
+// Presentational milestones while the request is in flight.
+const PROGRESS_MILESTONES: Array<{
+  delay: number;
+  agent: string;
+  status: AgentStatus;
+  progress: number;
+  idx: number;
+}> = [
+  { delay: 300, agent: "policy", status: "running", progress: 12, idx: 0 },
+  { delay: 3_000, agent: "catalog", status: "running", progress: 32, idx: 1 },
+  { delay: 6_000, agent: "footprint", status: "running", progress: 48, idx: 2 },
+  { delay: 12_000, agent: "footprint", status: "complete", progress: 66, idx: 2 },
+  { delay: 20_000, agent: "policy", status: "complete", progress: 80, idx: 2 },
+  { delay: 30_000, agent: "catalog", status: "complete", progress: 90, idx: 2 },
 ];
 
 export function useMerchantScan() {
   const [state, setState] = useState<ScanState>(INITIAL_STATE);
-  const timersRef = useRef<NodeJS.Timeout[]>([]);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
   const startTimeRef = useRef<number>(0);
+  const mountedRef = useRef(true);
 
-  const clearTimers = () => {
+  const clearTimers = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
-  };
-
-  const startScan = useCallback(async (url: string) => {
-    clearTimers();
-    startTimeRef.current = Date.now();
-
-    // Enter scanning state
-    setState({
-      ...INITIAL_STATE,
-      phase: "scanning",
-      url,
-      agentStatuses: { policy: "idle", catalog: "idle", footprint: "idle" },
-      progress: 5,
-      currentAgentIndex: 0,
-    });
-
-    // Schedule progress animation milestones
-    PROGRESS_MILESTONES.forEach(({ delay, agent, status, progress, idx }) => {
-      const t = setTimeout(() => {
-        setState((prev) => {
-          if (prev.phase !== "scanning") return prev;
-          return {
-            ...prev,
-            agentStatuses: { ...prev.agentStatuses, [agent]: status },
-            progress,
-            currentAgentIndex: idx,
-          };
-        });
-      }, delay);
-      timersRef.current.push(t);
-    });
-
-    // Make real API call
-    try {
-      const report = await inspectMerchant(url);
-      const durationMs = Date.now() - startTimeRef.current;
-      clearTimers();
-
-      const result = mapReport(report, url, durationMs);
-      setState({
-        phase: "complete",
-        url,
-        agentStatuses: { policy: "complete", catalog: "complete", footprint: "complete" },
-        agentDurations: {
-          policy: Math.round(durationMs * 0.35),
-          catalog: Math.round(durationMs * 0.4),
-          footprint: Math.round(durationMs * 0.25),
-        },
-        result,
-        progress: 100,
-        currentAgentIndex: -1,
-        errorMessage: null,
-      });
-    } catch (err) {
-      clearTimers();
-      const message = err instanceof Error ? err.message : "Inspection failed";
-      setState((prev) => ({
-        ...prev,
-        phase: "error",
-        progress: 0,
-        errorMessage: message,
-        agentStatuses: { policy: "error", catalog: "error", footprint: "error" },
-      }));
-    }
   }, []);
+
+  // Cancel any in-flight request and pending timers when the hook unmounts,
+  // so a completed fetch cannot call setState on an unmounted component.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  const startScan = useCallback(
+    async (url: string) => {
+      clearTimers();
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      startTimeRef.current = Date.now();
+
+      setState({
+        ...INITIAL_STATE,
+        phase: "scanning",
+        url,
+        progress: 5,
+        currentAgentIndex: 0,
+      });
+
+      PROGRESS_MILESTONES.forEach(({ delay, agent, status, progress, idx }) => {
+        const t = setTimeout(() => {
+          setState((prev) => {
+            if (prev.phase !== "scanning") return prev;
+            return {
+              ...prev,
+              agentStatuses: { ...prev.agentStatuses, [agent]: status },
+              progress,
+              currentAgentIndex: idx,
+            };
+          });
+        }, delay);
+        timersRef.current.push(t);
+      });
+
+      try {
+        const report = await inspectMerchant(url, controller.signal);
+        clearTimers();
+        if (!mountedRef.current || controller.signal.aborted) return;
+
+        const durationMs = Date.now() - startTimeRef.current;
+        const result = mapReport(report, url, durationMs);
+        const agentDuration = report.processing_time_ms || durationMs;
+
+        setState({
+          phase: "complete",
+          url,
+          agentStatuses: { policy: "complete", catalog: "complete", footprint: "complete" },
+          agentDurations: {
+            policy: agentDuration,
+            catalog: agentDuration,
+            footprint: agentDuration,
+          },
+          result,
+          progress: 100,
+          currentAgentIndex: -1,
+          errorMessage: null,
+        });
+      } catch (err) {
+        clearTimers();
+        // A user-initiated cancel is not an error state.
+        if (!mountedRef.current || controller.signal.aborted) return;
+
+        const message = err instanceof Error ? err.message : "Inspection failed";
+        setState((prev) => ({
+          ...prev,
+          phase: "error",
+          progress: 0,
+          errorMessage: message,
+          agentStatuses: { policy: "error", catalog: "error", footprint: "error" },
+        }));
+      }
+    },
+    [clearTimers]
+  );
 
   const reset = useCallback(() => {
     clearTimers();
+    abortRef.current?.abort();
+    abortRef.current = null;
     setState(INITIAL_STATE);
-  }, []);
+  }, [clearTimers]);
 
   return { state, startScan, reset };
 }

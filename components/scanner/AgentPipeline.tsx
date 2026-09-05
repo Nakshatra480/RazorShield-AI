@@ -2,80 +2,67 @@
 import React from "react";
 import { motion } from "framer-motion";
 import {
+  AlertCircle,
   CheckCircle2,
   Circle,
-  Loader2,
-  AlertCircle,
-  Shield,
-  Package,
   Globe,
+  Loader2,
+  Package,
+  Shield,
 } from "lucide-react";
-import type { AgentStatus } from "@/lib/mockData";
+import type { AgentStatus } from "@/lib/types";
 import { formatMs } from "@/lib/utils";
 
-interface Agent {
-  id: string;
-  name: string;
-  emoji: string;
-  description: string;
-}
-
-const AGENTS: Agent[] = [
+const AGENTS = [
   {
     id: "policy",
-    name: "Policy Sub-Agent",
-    emoji: "🛡️",
-    description: "Scraping T&C, Privacy & Refund Policy",
+    name: "Policy compliance",
+    icon: Shield,
+    description: "Reads terms, privacy, refund, and contact pages",
   },
   {
     id: "catalog",
-    name: "Catalog Sub-Agent",
-    emoji: "📦",
-    description: "Analyzing restricted products & image metadata",
+    name: "Catalog safety",
+    icon: Package,
+    description: "Matches products against prohibited patterns via pgvector",
   },
   {
     id: "footprint",
-    name: "Digital Footprint",
-    emoji: "🌐",
-    description: "WHOIS, SSL check & domain age analysis",
+    name: "Digital footprint",
+    icon: Globe,
+    description: "WHOIS registration age and TLS certificate validity",
   },
-];
+] as const;
 
-const AGENT_ICONS = {
-  policy: Shield,
-  catalog: Package,
-  footprint: Globe,
+const STATUS_META: Record<
+  AgentStatus,
+  { label: string; badge: string; Icon: React.ElementType; iconCls: string }
+> = {
+  idle: {
+    label: "Queued",
+    badge: "bg-surface-muted text-ink-3 border-line",
+    Icon: Circle,
+    iconCls: "text-ink-4",
+  },
+  running: {
+    label: "Running",
+    badge: "bg-brand-soft text-brand-ink border-brand-border",
+    Icon: Loader2,
+    iconCls: "text-brand animate-spin",
+  },
+  complete: {
+    label: "Complete",
+    badge: "bg-risk-safe-soft text-risk-safe border-risk-safe-border",
+    Icon: CheckCircle2,
+    iconCls: "text-risk-safe",
+  },
+  error: {
+    label: "Failed",
+    badge: "bg-risk-danger-soft text-risk-danger border-risk-danger-border",
+    Icon: AlertCircle,
+    iconCls: "text-risk-danger",
+  },
 };
-
-function StatusIcon({ status }: { status: AgentStatus }) {
-  switch (status) {
-    case "complete":
-      return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
-    case "running":
-      return (
-        <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-      );
-    case "error":
-      return <AlertCircle className="w-4 h-4 text-red-400" />;
-    default:
-      return <Circle className="w-4 h-4 text-slate-600" />;
-  }
-}
-
-function StatusLabel({ status }: { status: AgentStatus }) {
-  const map = {
-    idle: { label: "Queued", cls: "text-slate-500 bg-slate-800 border-slate-700" },
-    running: { label: "Running", cls: "text-blue-400 bg-blue-900/30 border-blue-800/50" },
-    complete: { label: "Complete", cls: "text-emerald-400 bg-emerald-900/30 border-emerald-800/50" },
-    error: { label: "Error", cls: "text-red-400 bg-red-900/30 border-red-800/50" },
-  };
-  const { label, cls } = map[status];
-  return (
-    <span className={`text-xs font-mono px-2 py-0.5 rounded border ${cls}`}>
-      {label}
-    </span>
-  );
-}
 
 interface AgentPipelineProps {
   agentStatuses: Record<string, AgentStatus>;
@@ -93,110 +80,71 @@ export default function AgentPipeline({
   if (!isScanning && progress === 0) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      className="rounded-xl border border-slate-800 bg-surface overflow-hidden"
+      transition={{ duration: 0.3 }}
+      className="rounded-xl border border-line bg-surface shadow-card overflow-hidden"
+      aria-live="polite"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
-        <div className="flex items-center gap-2">
-          {isScanning && (
-            <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
-          )}
-          <span className="text-xs font-semibold text-slate-300 tracking-wide uppercase">
-            Agent Execution Pipeline
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-mono text-slate-500">
-            {progress}%
-          </span>
-        </div>
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
+        <h2 className="text-[13px] font-semibold text-ink">Agent pipeline</h2>
+        <span className="text-xs font-mono text-ink-3 tabular-nums">{progress}%</span>
       </div>
 
-      {/* Progress bar */}
-      <div className="h-0.5 bg-slate-800">
+      {/* Progress rail */}
+      <div className="h-1 bg-surface-sunken" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
         <motion.div
-          className="h-full bg-gradient-to-r from-blue-600 to-indigo-500"
+          className="h-full bg-brand"
           initial={{ width: 0 }}
           animate={{ width: `${progress}%` }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
+          transition={{ duration: 0.4, ease: "easeOut" }}
         />
       </div>
 
-      {/* Agent nodes */}
-      <div className="p-5">
-        <div className="relative">
-          {/* Connector line */}
-          <div className="absolute left-5 top-8 bottom-8 w-px bg-slate-800" />
+      <ul className="divide-y divide-line">
+        {AGENTS.map((agent) => {
+          const status = agentStatuses[agent.id] ?? "idle";
+          const meta = STATUS_META[status];
+          const duration = agentDurations[agent.id];
+          const AgentIcon = agent.icon;
+          const StatusIcon = meta.Icon;
 
-          <div className="space-y-4">
-            {AGENTS.map((agent, idx) => {
-              const status = agentStatuses[agent.id] ?? "idle";
-              const duration = agentDurations[agent.id];
-              const AgentIcon = AGENT_ICONS[agent.id as keyof typeof AGENT_ICONS];
+          return (
+            <li
+              key={agent.id}
+              className={`flex items-start gap-3.5 px-5 py-4 transition-colors ${
+                status === "running" ? "bg-brand-soft/40" : ""
+              }`}
+            >
+              <span className="mt-0.5 flex-shrink-0">
+                <StatusIcon className={`w-4 h-4 ${meta.iconCls}`} aria-hidden />
+              </span>
 
-              return (
-                <motion.div
-                  key={agent.id}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  className={`relative flex items-start gap-4 pl-2 rounded-lg p-3 transition-colors duration-200 ${
-                    status === "running"
-                      ? "bg-blue-950/20 border border-blue-900/30"
-                      : status === "complete"
-                      ? "bg-slate-900/50"
-                      : "bg-transparent"
-                  }`}
-                >
-                  {/* Status icon on timeline */}
-                  <div className="relative z-10 flex-shrink-0 mt-0.5">
-                    <StatusIcon status={status} />
-                  </div>
+              <span className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-md bg-surface-muted border border-line flex items-center justify-center">
+                <AgentIcon className="w-3.5 h-3.5 text-ink-2" aria-hidden />
+              </span>
 
-                  {/* Agent info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1">
-                      <div className="flex items-center gap-1.5">
-                        <AgentIcon className="w-3.5 h-3.5 text-slate-500" />
-                        <span className="text-sm font-medium text-white">
-                          {agent.name}
-                        </span>
-                      </div>
-                      <StatusLabel status={status} />
-                      {duration > 0 && status === "complete" && (
-                        <span className="text-xs font-mono text-slate-500">
-                          {formatMs(duration)}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500">{agent.description}</p>
-
-                    {/* Running progress shimmer */}
-                    {status === "running" && (
-                      <div className="mt-2 h-0.5 rounded-full bg-slate-800 overflow-hidden">
-                        <motion.div
-                          className="h-full bg-blue-500"
-                          animate={{ x: ["-100%", "100%"] }}
-                          transition={{
-                            duration: 1.2,
-                            repeat: Infinity,
-                            ease: "easeInOut",
-                          }}
-                          style={{ width: "40%" }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </motion.div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-[13px] font-medium text-ink">{agent.name}</span>
+                  <span
+                    className={`text-[11px] font-medium px-1.5 py-0.5 rounded border ${meta.badge}`}
+                  >
+                    {meta.label}
+                  </span>
+                  {status === "complete" && duration > 0 && (
+                    <span className="text-[11px] font-mono text-ink-3 tabular-nums">
+                      {formatMs(duration)}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-ink-3 mt-0.5">{agent.description}</p>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </motion.section>
   );
 }

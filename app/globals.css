@@ -1,19 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #090D16;
-  --surface: #111827;
-  --surface-2: #1F2937;
-  --border: #374151;
-  --brand-blue: #3B82F6;
-  --brand-indigo: #6366F1;
-  --risk-safe: #10B981;
-  --risk-warning: #F59E0B;
-  --risk-danger: #EF4444;
+  --canvas: #f6f8fb;
+  --surface: #ffffff;
+  --line: #e3e9f2;
+  --ink: #0b1b3f;
+  --ink-3: #6b7a99;
+  --brand: #2b6cf6;
 }
 
 * {
@@ -21,122 +16,96 @@
 }
 
 html {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: light;
 }
 
 body {
-  background-color: var(--background);
-  color: #F9FAFB;
+  background-color: var(--canvas);
+  color: var(--ink);
   min-height: 100vh;
   overflow-x: hidden;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-::-webkit-scrollbar-track {
-  background: #111827;
-}
-::-webkit-scrollbar-thumb {
-  background: #374151;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #4B5563;
-}
-
-/* Monospace elements */
 .font-mono,
 code,
 pre {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-feature-settings: "liga" 0;
 }
 
-/* Terminal panel */
-.terminal-panel {
-  background: #060A14;
-  border: 1px solid #1F2937;
-  font-family: 'JetBrains Mono', monospace;
+/* ── Scrollbars ───────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d3dbe8;
+  border: 3px solid var(--canvas);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b9c4d6;
+}
+
+/* ── Focus ────────────────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Code / evidence panel ────────────────────────────────────────────────── */
+/* Raw scraped extracts are evidence, so they get a distinct sunken surface
+   rather than the terminal-green look the dark build used. */
+
+.evidence-panel {
+  background: #f8fafd;
+  border: 1px solid #e3e9f2;
+  color: #3d4c6b;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 0.75rem;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
-/* Scanner grid background */
-.scanner-grid-bg {
-  background-image: 
-    linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
-  background-size: 32px 32px;
+/* ── Skeleton loading ─────────────────────────────────────────────────────── */
+
+.skeleton {
+  background: linear-gradient(90deg, #eef2f8 0%, #f7f9fc 40%, #eef2f8 80%);
+  background-size: 400px 100%;
+  animation: shimmer 1.6s linear infinite;
 }
 
-/* Status pill animations */
-.status-dot-active {
-  animation: statusPulse 2s ease-in-out infinite;
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
 }
 
-@keyframes statusPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
+/* ── Numeric alignment for metrics/tables ─────────────────────────────────── */
 
-/* Scan line sweep */
-.scan-line {
-  position: absolute;
-  width: 100%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(99,102,241,0.6), transparent);
-  animation: scanLine 3s ease-in-out infinite;
-}
-
-@keyframes scanLine {
-  0% { top: 0%; opacity: 0; }
-  10% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { top: 100%; opacity: 0; }
-}
-
-/* Risk gauge ring */
-.gauge-ring {
-  filter: drop-shadow(0 0 8px rgba(59,130,246,0.3));
-}
-
-/* Agent pipeline connector */
-.pipeline-line {
-  background: linear-gradient(90deg, #374151, #3B82F6);
-  background-size: 200% 100%;
-  animation: pipelineFill 1s ease-in-out forwards;
-}
-
-@keyframes pipelineFill {
-  from { background-position: 100% 0; }
-  to { background-position: 0% 0; }
-}
-
-/* Typewriter cursor */
-.typewriter-cursor::after {
-  content: '▊';
-  animation: cursorBlink 1s step-end infinite;
-  color: var(--brand-blue);
-}
-
-@keyframes cursorBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-/* Glassmorphism surface */
-.glass-surface {
-  background: rgba(17, 24, 39, 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-/* Number counter element */
-.counter-value {
+.tabular-nums {
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

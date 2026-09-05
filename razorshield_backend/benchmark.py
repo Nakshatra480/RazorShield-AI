@@ -23,9 +23,8 @@ Usage:
 import asyncio
 import json
 import logging
+import os
 import random
-import uuid
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -41,7 +40,7 @@ from sklearn.metrics import (
 from sqlalchemy import text
 
 from razorshield_backend.agents.catalog_agent import _load_embedding_model, _EMBED_LOCK
-from razorshield_backend.agents.orchestrator import score_from_raw_data
+from razorshield_backend.agents.orchestrator import get_llm_client, score_from_raw_data
 from razorshield_backend.config import get_settings
 from razorshield_backend.db.database import get_session, init_db
 from razorshield_backend.db.models import ProhibitedPattern
@@ -56,6 +55,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 RESULTS_PATH = Path(__file__).parent.parent / "public" / "benchmark_results.json"
+
+# Fixed seed so the reported precision/recall describe a reproducible dataset.
+# Without it every run generated a different set of synthetic merchants, so two
+# runs of "the same" benchmark were not comparable and a regression could not be
+# distinguished from resampling noise. Override with RAZORSHIELD_BENCHMARK_SEED.
+BENCHMARK_SEED = int(os.getenv("RAZORSHIELD_BENCHMARK_SEED", "20240915"))
+
+# Cost model inputs. Named constants rather than magic numbers so the dashboard
+# can display the assumptions behind the projected figures.
+COST_PER_FALSE_POSITIVE_USD = 150      # lost merchant lifetime value
+COST_PER_FALSE_NEGATIVE_USD = 2500     # chargebacks + scheme fines for onboarding a fraudster
+MONTHLY_MERCHANT_VOLUME = 1000         # onboarding volume the projection assumes
 
 # ─── Prohibited item seed catalogue ──────────────────────────────────────────
 
@@ -273,7 +284,10 @@ async def run_benchmark() -> dict:
     Returns metrics dict that is also written to public/benchmark_results.json.
     """
     settings = get_settings()
-    logger.info("=== RazorShield AI Benchmark Starting ===")
+    logger.info("=== RazorShield AI Benchmark Starting (seed=%d) ===", BENCHMARK_SEED)
+
+    # Reset the RNG so the 50 synthetic profiles are identical run to run.
+    random.seed(BENCHMARK_SEED)
 
     # 1. Init DB + seed prohibited patterns
     await init_db()
@@ -300,9 +314,10 @@ async def run_benchmark() -> dict:
     # Shuffle to randomise processing order
     random.shuffle(profiles)
 
-    # 3. Run scoring concurrently
-    # Semaphore=3 balances throughput with OpenRouter free-tier rate limits
-    semaphore = asyncio.Semaphore(3)
+    # 3. Run scoring concurrently, bounded by the configured concurrency limit
+    # (previously hardcoded to 3 while logging settings.max_concurrent_inspections,
+    # so the number reported in the logs was not the number actually used).
+    semaphore = asyncio.Semaphore(settings.max_concurrent_inspections)
     y_true: list[int] = []
     y_pred: list[int] = []
     scan_details: list[dict] = []
@@ -333,6 +348,7 @@ async def run_benchmark() -> dict:
                     "correct": pred_label == true_label,
                     "guardrail": report.guardrail_triggered,
                     "processing_ms": report.processing_time_ms,
+                    "fully_analyzed": report.fully_analyzed,
                 })
             except Exception as exc:
                 logger.error("Benchmark evaluation failed for %s: %s", url, exc)
@@ -341,7 +357,11 @@ async def run_benchmark() -> dict:
                 y_pred.append(1 - true_label)
 
     tasks = [evaluate_one(url, scrape, domain, label) for url, scrape, domain, label in profiles]
-    logger.info("Running %d evaluations (concurrency=%d)...", len(tasks), settings.max_concurrent_inspections)
+    logger.info(
+        "Running %d evaluations (concurrency=%d)...",
+        len(tasks),
+        settings.max_concurrent_inspections,
+    )
     await asyncio.gather(*tasks)
 
     # 4. Compute metrics
@@ -356,7 +376,7 @@ async def run_benchmark() -> dict:
     f1 = float(f1_score(y_true_arr, y_pred_arr, zero_division=0))
 
     # False-positive cost: FP × $150 (lost merchant LTV) + FN × $2,500 (chargeback fine)
-    false_positive_cost = int(fp * 150 + fn * 2500)
+    false_positive_cost = int(fp * COST_PER_FALSE_POSITIVE_USD + fn * COST_PER_FALSE_NEGATIVE_USD)
     accuracy = float(np.mean(y_true_arr == y_pred_arr))
 
     avg_processing_ms = (
@@ -364,33 +384,45 @@ async def run_benchmark() -> dict:
         if scan_details else 0
     )
 
-    # Financial impact data (monthly projected, 1,000 merchants/month scale)
-    monthly_scale = 1000
-    fp_rate = fp / max(tn + fp, 1)
-    fn_rate = fn / max(tp + fn, 1)
-    monthly_fp_cost = int(fp_rate * monthly_scale * 150)
-    monthly_fn_cost = int(fn_rate * monthly_scale * 2500)
-    monthly_total_loss_prevented = int((1 - fn_rate) * monthly_scale * 0.15 * 2500)
+    # ── Cost model ────────────────────────────────────────────────────────────
+    # Projected from THIS run's measured error rates. Every input is stated in
+    # the output so the dashboard can show the assumptions alongside the number.
+    #
+    # The previous version emitted six months of "chart_data" generated by
+    # multiplying one measurement by a hardcoded `1.0 - month * 0.05` ramp, and
+    # the UI plotted it as a time series. That is a fabricated trend: the
+    # benchmark runs once and has no historical data. It has been replaced with
+    # the single-run cost breakdown that the numbers actually support.
+    fp_rate = fp / max(tn + fp, 1)          # share of safe merchants wrongly blocked
+    fn_rate = fn / max(tp + fn, 1)          # share of risky merchants wrongly approved
+    prevalence = (tp + fn) / max(len(y_true), 1)
 
-    # Build monthly chart data (6 months, simulated trend improving over time)
-    chart_data = []
-    for month_offset in range(6):
-        improvement = 1.0 - month_offset * 0.05
-        chart_data.append({
-            "month": (datetime.now(timezone.utc).month - 5 + month_offset) % 12 + 1,
-            "month_label": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
-                            "Aug", "Sep", "Oct", "Nov", "Dec"][
-                (datetime.now(timezone.utc).month - 6 + month_offset) % 12
-            ],
-            "fraud_prevented_usd": int(monthly_total_loss_prevented * improvement),
-            "false_declines_usd": int(monthly_fp_cost * improvement),
-            "net_impact_usd": int(
-                monthly_total_loss_prevented * improvement - monthly_fp_cost * improvement
-            ),
-        })
+    monthly_fp_cost = int(fp_rate * MONTHLY_MERCHANT_VOLUME * COST_PER_FALSE_POSITIVE_USD)
+    monthly_fn_cost = int(fn_rate * MONTHLY_MERCHANT_VOLUME * prevalence * COST_PER_FALSE_NEGATIVE_USD)
+    # Fraud caught = risky merchants correctly blocked, at the same unit cost
+    # that an escaped one would have incurred.
+    monthly_fraud_prevented = int(
+        (1 - fn_rate) * MONTHLY_MERCHANT_VOLUME * prevalence * COST_PER_FALSE_NEGATIVE_USD
+    )
+
+    llm_health = get_llm_client(settings).health
+    degraded_count = sum(1 for d in scan_details if not d.get("fully_analyzed", True))
 
     results = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        # Provenance: the dashboard reads these instead of hardcoding a model
+        # name, which previously showed "GPT-4o / LangGraph" for a run that
+        # actually used Llama 3.1 through LiteLLM.
+        "config": {
+            "llm_model": settings.llm_model,
+            "embedding_model": settings.embedding_model_name,
+            "similarity_threshold": settings.prohibited_similarity_threshold,
+            "concurrency": settings.max_concurrent_inspections,
+            "random_seed": BENCHMARK_SEED,
+            "llm_available": bool(llm_health.available) if llm_health else None,
+            "llm_detail": llm_health.detail if llm_health else None,
+            "degraded_evaluations": degraded_count,
+        },
         "dataset": {
             "total_merchants": len(profiles),
             "safe_merchants": 35,
@@ -410,26 +442,49 @@ async def run_benchmark() -> dict:
             "false_negative": int(fn),
         },
         "financial_impact": {
-            "false_positive_cost_per_merchant_usd": 150,
-            "false_negative_cost_per_merchant_usd": 2500,
+            "false_positive_cost_per_merchant_usd": COST_PER_FALSE_POSITIVE_USD,
+            "false_negative_cost_per_merchant_usd": COST_PER_FALSE_NEGATIVE_USD,
             "total_benchmark_cost_usd": false_positive_cost,
-            "monthly_fraud_prevented_usd": monthly_total_loss_prevented,
+            "monthly_fraud_prevented_usd": monthly_fraud_prevented,
             "monthly_false_decline_cost_usd": monthly_fp_cost,
+            "monthly_missed_fraud_cost_usd": monthly_fn_cost,
         },
-        "chart_data": chart_data,
+        # Single-run projection with its inputs attached, so the dashboard can
+        # show "modelled at N merchants/month" rather than implying measurement.
+        "cost_model": {
+            "basis": "single benchmark run; projected linearly to monthly volume",
+            "monthly_merchant_volume": MONTHLY_MERCHANT_VOLUME,
+            "high_risk_prevalence": round(prevalence, 4),
+            "false_positive_rate": round(fp_rate, 4),
+            "false_negative_rate": round(fn_rate, 4),
+            "cost_per_false_positive_usd": COST_PER_FALSE_POSITIVE_USD,
+            "cost_per_false_negative_usd": COST_PER_FALSE_NEGATIVE_USD,
+            "monthly_false_decline_cost_usd": monthly_fp_cost,
+            "monthly_missed_fraud_cost_usd": monthly_fn_cost,
+            "monthly_fraud_prevented_usd": monthly_fraud_prevented,
+        },
         "scan_details": scan_details,
     }
 
     # 5. Write to public/ for Next.js frontend
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(RESULTS_PATH, "w", encoding="utf-8") as f:
+    tmp_path = RESULTS_PATH.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
+    os.replace(tmp_path, RESULTS_PATH)  # atomic — readers never see a partial file
 
     logger.info("=== Benchmark Complete ===")
     logger.info("Precision: %.4f | Recall: %.4f | F1: %.4f | Accuracy: %.4f",
                 precision, recall, f1, accuracy)
     logger.info("Confusion Matrix — TP:%d FP:%d TN:%d FN:%d", tp, fp, tn, fn)
     logger.info("Total false-positive cost: $%s", f"{false_positive_cost:,}")
+    if degraded_count:
+        logger.warning(
+            "%d/%d evaluations ran in degraded mode (LLM or pgvector unavailable) — "
+            "metrics reflect fallback scoring.",
+            degraded_count,
+            len(scan_details),
+        )
     logger.info("Results written to: %s", RESULTS_PATH)
 
     return results

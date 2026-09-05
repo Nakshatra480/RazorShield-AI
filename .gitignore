@@ -22,6 +22,8 @@ dist/
 
 # testing
 /coverage
+.pytest_cache/
+htmlcov/
 
 # next.js
 /.next/
@@ -48,3 +50,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# test / benchmark run logs
+test_report*.log
+*.json.tmp

@@ -1,5 +1,15 @@
 {
-  "generated_at": "2026-09-05T11:20:36Z",
+  "generated_at": "2026-09-05T18:32:09Z",
+  "config": {
+    "llm_model": "openrouter/meta-llama/llama-3.1-70b-instruct",
+    "embedding_model": "BAAI/bge-base-en-v1.5",
+    "similarity_threshold": 0.75,
+    "concurrency": 5,
+    "random_seed": 20240915,
+    "llm_available": false,
+    "llm_detail": "HTTP 429: litellm.RateLimitError: RateLimitError: OpenrouterException - {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"meta-llama/llama-3.1-7",
+    "degraded_evaluations": 2
+  },
   "dataset": {
     "total_merchants": 50,
     "safe_merchants": 35,
@@ -10,7 +20,7 @@
     "recall": 1.0,
     "f1_score": 1.0,
     "accuracy": 1.0,
-    "avg_processing_ms": 9382
+    "avg_processing_ms": 15689
   },
   "confusion_matrix": {
     "true_positive": 15,
@@ -22,404 +32,62 @@
     "false_positive_cost_per_merchant_usd": 150,
     "false_negative_cost_per_merchant_usd": 2500,
     "total_benchmark_cost_usd": 0,
-    "monthly_fraud_prevented_usd": 375000,
-    "monthly_false_decline_cost_usd": 0
+    "monthly_fraud_prevented_usd": 750000,
+    "monthly_false_decline_cost_usd": 0,
+    "monthly_missed_fraud_cost_usd": 0
   },
-  "chart_data": [
-    {
-      "month": 5,
-      "month_label": "Apr",
-      "fraud_prevented_usd": 375000,
-      "false_declines_usd": 0,
-      "net_impact_usd": 375000
-    },
-    {
-      "month": 6,
-      "month_label": "May",
-      "fraud_prevented_usd": 356250,
-      "false_declines_usd": 0,
-      "net_impact_usd": 356250
-    },
-    {
-      "month": 7,
-      "month_label": "Jun",
-      "fraud_prevented_usd": 337500,
-      "false_declines_usd": 0,
-      "net_impact_usd": 337500
-    },
-    {
-      "month": 8,
-      "month_label": "Jul",
-      "fraud_prevented_usd": 318750,
-      "false_declines_usd": 0,
-      "net_impact_usd": 318750
-    },
-    {
-      "month": 9,
-      "month_label": "Aug",
-      "fraud_prevented_usd": 300000,
-      "false_declines_usd": 0,
-      "net_impact_usd": 300000
-    },
-    {
-      "month": 10,
-      "month_label": "Sep",
-      "fraud_prevented_usd": 281250,
-      "false_declines_usd": 0,
-      "net_impact_usd": 281250
-    }
-  ],
+  "cost_model": {
+    "basis": "single benchmark run; projected linearly to monthly volume",
+    "monthly_merchant_volume": 1000,
+    "high_risk_prevalence": 0.3,
+    "false_positive_rate": 0.0,
+    "false_negative_rate": 0.0,
+    "cost_per_false_positive_usd": 150,
+    "cost_per_false_negative_usd": 2500,
+    "monthly_false_decline_cost_usd": 0,
+    "monthly_missed_fraud_cost_usd": 0,
+    "monthly_fraud_prevented_usd": 750000
+  },
   "scan_details": [
     {
-      "url": "https://merchant-032-safe.example.com",
+      "url": "https://merchant-013-safe.example.com",
       "true_label": "SAFE",
       "predicted": "SAFE",
-      "risk_score": 1.9,
+      "risk_score": 3.1,
       "correct": true,
       "guardrail": false,
-      "processing_ms": 7864
-    },
-    {
-      "url": "https://merchant-025-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.66,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 14512
-    },
-    {
-      "url": "https://merchant-003-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 90.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 14754
-    },
-    {
-      "url": "https://merchant-002-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 90.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 10535
-    },
-    {
-      "url": "https://merchant-012-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 95.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 9622
-    },
-    {
-      "url": "https://merchant-031-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.77,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 9711
-    },
-    {
-      "url": "https://merchant-009-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 95.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 11431
-    },
-    {
-      "url": "https://merchant-015-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.89,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 9930
-    },
-    {
-      "url": "https://merchant-008-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 90.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 11521
-    },
-    {
-      "url": "https://merchant-001-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.27,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 7959
-    },
-    {
-      "url": "https://merchant-030-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.93,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 8647
-    },
-    {
-      "url": "https://merchant-007-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.26,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 7902
-    },
-    {
-      "url": "https://merchant-004-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 95.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 7517
-    },
-    {
-      "url": "https://merchant-011-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 0.38,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 9198
-    },
-    {
-      "url": "https://merchant-009-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.83,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 10179
-    },
-    {
-      "url": "https://merchant-022-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.26,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 8789
-    },
-    {
-      "url": "https://merchant-004-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 3.49,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 10139
-    },
-    {
-      "url": "https://merchant-026-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 0.71,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 13030
-    },
-    {
-      "url": "https://merchant-001-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 90.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 11846
-    },
-    {
-      "url": "https://merchant-019-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 2.58,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 6833
-    },
-    {
-      "url": "https://merchant-000-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 90.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 11880
-    },
-    {
-      "url": "https://merchant-024-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 3.31,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 16070
-    },
-    {
-      "url": "https://merchant-005-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 90.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 11080
-    },
-    {
-      "url": "https://merchant-033-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.44,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 12154
-    },
-    {
-      "url": "https://merchant-003-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 3.0,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 10136
-    },
-    {
-      "url": "https://merchant-002-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 2.97,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 9424
-    },
-    {
-      "url": "https://merchant-034-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.2,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 9386
-    },
-    {
-      "url": "https://merchant-027-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.78,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 8981
-    },
-    {
-      "url": "https://merchant-000-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 0.15,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 11513
+      "processing_ms": 11566,
+      "fully_analyzed": true
     },
     {
       "url": "https://merchant-010-safe.example.com",
       "true_label": "SAFE",
       "predicted": "SAFE",
-      "risk_score": 3.04,
+      "risk_score": 0.22,
       "correct": true,
       "guardrail": false,
-      "processing_ms": 9972
+      "processing_ms": 12567,
+      "fully_analyzed": true
     },
     {
-      "url": "https://merchant-028-safe.example.com",
+      "url": "https://merchant-025-safe.example.com",
       "true_label": "SAFE",
       "predicted": "SAFE",
-      "risk_score": 2.94,
+      "risk_score": 0.62,
       "correct": true,
       "guardrail": false,
-      "processing_ms": 11142
-    },
-    {
-      "url": "https://merchant-021-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 0.67,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 10958
-    },
-    {
-      "url": "https://merchant-029-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 2.94,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 8665
-    },
-    {
-      "url": "https://merchant-012-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.86,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 11079
+      "processing_ms": 13585,
+      "fully_analyzed": true
     },
     {
       "url": "https://merchant-017-safe.example.com",
       "true_label": "SAFE",
       "predicted": "SAFE",
-      "risk_score": 2.81,
+      "risk_score": 8.11,
       "correct": true,
       "guardrail": false,
-      "processing_ms": 10110
-    },
-    {
-      "url": "https://merchant-010-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 95.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 9092
-    },
-    {
-      "url": "https://merchant-020-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.48,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 10633
-    },
-    {
-      "url": "https://merchant-014-risk.example.com",
-      "true_label": "HIGH_RISK",
-      "predicted": "HIGH_RISK",
-      "risk_score": 90.0,
-      "correct": true,
-      "guardrail": true,
-      "processing_ms": 14800
-    },
-    {
-      "url": "https://merchant-006-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.21,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 2859
+      "processing_ms": 13857,
+      "fully_analyzed": true
     },
     {
       "url": "https://merchant-007-risk.example.com",
@@ -428,34 +96,308 @@
       "risk_score": 90.0,
       "correct": true,
       "guardrail": true,
-      "processing_ms": 3256
+      "processing_ms": 16493,
+      "fully_analyzed": true
     },
     {
-      "url": "https://merchant-008-safe.example.com",
+      "url": "https://merchant-032-safe.example.com",
       "true_label": "SAFE",
       "predicted": "SAFE",
-      "risk_score": 0.46,
+      "risk_score": 3.27,
       "correct": true,
       "guardrail": false,
-      "processing_ms": 12004
+      "processing_ms": 10078,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-012-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 10.19,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 10039,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-005-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.26,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 16228,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-004-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 0.11,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 17519,
+      "fully_analyzed": true
     },
     {
       "url": "https://merchant-023-safe.example.com",
       "true_label": "SAFE",
       "predicted": "SAFE",
-      "risk_score": 1.33,
+      "risk_score": 1.96,
       "correct": true,
       "guardrail": false,
-      "processing_ms": 8061
+      "processing_ms": 10708,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-012-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 90.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 22417,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-010-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 95.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 18891,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-000-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 3.07,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 14368,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-033-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.28,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 14461,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-026-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 1.51,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 13645,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-002-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 0.57,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 14621,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-016-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 0.12,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 16876,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-000-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 90.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 15942,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-007-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.37,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 11673,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-031-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.84,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 13238,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-021-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.2,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 14643,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-024-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 3.07,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 13539,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-020-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 1.92,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 12959,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-014-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 95.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 10791,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-019-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 1.75,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 16316,
+      "fully_analyzed": true
     },
     {
       "url": "https://merchant-018-safe.example.com",
       "true_label": "SAFE",
       "predicted": "SAFE",
-      "risk_score": 1.69,
+      "risk_score": 2.32,
       "correct": true,
       "guardrail": false,
-      "processing_ms": 3363
+      "processing_ms": 15567,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-014-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.93,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 14843,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-022-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.56,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 12152,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-001-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 95.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 15468,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-006-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 90.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 14370,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-011-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 3.54,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 14091,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-005-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 95.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 10289,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-027-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.96,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 17464,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-006-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 0.5,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 17087,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-015-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 0.22,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 15529,
+      "fully_analyzed": true
     },
     {
       "url": "https://merchant-011-risk.example.com",
@@ -464,7 +406,128 @@
       "risk_score": 95.0,
       "correct": true,
       "guardrail": true,
-      "processing_ms": 3785
+      "processing_ms": 15641,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-030-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 3.01,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 16563,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-003-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 90.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 11533,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-002-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 90.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 16514,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-003-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 3.55,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 16356,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-004-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 95.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 17527,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-008-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 1.54,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 10004,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-008-risk.example.com",
+      "true_label": "HIGH_RISK",
+      "predicted": "HIGH_RISK",
+      "risk_score": 90.0,
+      "correct": true,
+      "guardrail": true,
+      "processing_ms": 18909,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-001-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 2.17,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 15261,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-029-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 3.52,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 18776,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-034-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 1.19,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 20647,
+      "fully_analyzed": false
+    },
+    {
+      "url": "https://merchant-009-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 0.43,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 10857,
+      "fully_analyzed": true
+    },
+    {
+      "url": "https://merchant-028-safe.example.com",
+      "true_label": "SAFE",
+      "predicted": "SAFE",
+      "risk_score": 0.05,
+      "correct": true,
+      "guardrail": false,
+      "processing_ms": 15873,
+      "fully_analyzed": true
     },
     {
       "url": "https://merchant-013-risk.example.com",
@@ -473,52 +536,18 @@
       "risk_score": 90.0,
       "correct": true,
       "guardrail": true,
-      "processing_ms": 3677
+      "processing_ms": 42390,
+      "fully_analyzed": true
     },
     {
-      "url": "https://merchant-016-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "MANUAL_REVIEW",
-      "risk_score": 42.8,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 3418
-    },
-    {
-      "url": "https://merchant-013-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "MANUAL_REVIEW",
-      "risk_score": 43.05,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 8602
-    },
-    {
-      "url": "https://merchant-006-risk.example.com",
+      "url": "https://merchant-009-risk.example.com",
       "true_label": "HIGH_RISK",
       "predicted": "HIGH_RISK",
       "risk_score": 95.0,
       "correct": true,
       "guardrail": true,
-      "processing_ms": 11610
-    },
-    {
-      "url": "https://merchant-005-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "MANUAL_REVIEW",
-      "risk_score": 42.46,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 4484
-    },
-    {
-      "url": "https://merchant-014-safe.example.com",
-      "true_label": "SAFE",
-      "predicted": "SAFE",
-      "risk_score": 1.64,
-      "correct": true,
-      "guardrail": false,
-      "processing_ms": 5016
+      "processing_ms": 33747,
+      "fully_analyzed": false
     }
   ]
 }

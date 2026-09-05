@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 #  start.sh — RazorShield AI one-command launcher
-#  Starts both the FastAPI backend (port 8000) and Next.js frontend (port 3001)
+#  Starts both the FastAPI backend (port 8000) and Next.js frontend (port 3000)
 #  concurrently, with graceful SIGINT/SIGTERM handling.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -39,7 +39,7 @@ fi
 info "Node:   $(node --version)"
 
 # ── Free ports if occupied ───────────────────────────────────────────────────
-for PORT in 8000 3001; do
+for PORT in 8000 3000; do
   PIDS=$(lsof -ti :"$PORT" 2>/dev/null || true)
   if [[ -n "$PIDS" ]]; then
     warn "Port $PORT in use — killing PIDs: $PIDS"
@@ -72,14 +72,14 @@ for i in $(seq 1 20); do
 done
 
 # ── Frontend ─────────────────────────────────────────────────────────────────
-info "Starting Next.js frontend on http://localhost:3001 …"
-npm run dev -- --port 3001 2>&1 | sed "s/^/  [FRONTEND] /" &
+info "Starting Next.js frontend on http://localhost:3000 …"
+npm run dev -- --port 3000 2>&1 | sed "s/^/  [FRONTEND] /" &
 FRONTEND_PID=$!
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 banner
 echo -e "  ${BOLD}Both servers running${RESET}"
-echo -e "  Frontend:  ${BLUE}http://localhost:3001${RESET}"
+echo -e "  Frontend:  ${BLUE}http://localhost:3000${RESET}"
 echo -e "  Backend:   ${BLUE}http://localhost:8000${RESET}"
 echo -e "  API Docs:  ${BLUE}http://localhost:8000/api/docs${RESET}"
 banner

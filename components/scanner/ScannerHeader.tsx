@@ -1,12 +1,6 @@
 "use client";
-import React, { useState, useEffect, Suspense, lazy } from "react";
-import { motion } from "framer-motion";
-import { Search, Zap, Shield, X, Globe } from "lucide-react";
-
-// Lazy-load the Three.js globe — only ever runs on the client.
-// We gate rendering behind `isMounted` so the SSR pass never touches it,
-// which prevents the Next.js 14 "BailoutToCSR" crash that stripped all CSS.
-const ScannerGlobe = lazy(() => import("@/components/three/ScannerGlobe"));
+import React, { useState } from "react";
+import { ArrowRight, Loader2, Search, X } from "lucide-react";
 
 interface ScannerHeaderProps {
   onStartScan: (url: string) => void;
@@ -14,169 +8,136 @@ interface ScannerHeaderProps {
   onReset?: () => void;
 }
 
+/**
+ * Real, publicly reachable sites so the demo actually completes a scan.
+ * The previous list ("fastpills-rx.net", "merchant-electronics.shop") pointed at
+ * domains that do not resolve, so every sample click ended in a scrape error.
+ */
+const SAMPLE_DOMAINS = ["stripe.com", "razorpay.com", "example.com"];
+
 export default function ScannerHeader({
   onStartScan,
   isScanning,
   onReset,
 }: ScannerHeaderProps) {
   const [url, setUrl] = useState("");
-  const [focused, setFocused] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
+  const [touched, setTouched] = useState(false);
 
-  // Only render Three.js canvas after client hydration — avoids SSR BailoutToCSR crash
-  useEffect(() => { setIsMounted(true); }, []);
+  const trimmed = url.trim();
+  // Accept a bare hostname; require at least one dot and no spaces.
+  const looksValid = /^([a-z]+:\/\/)?[^\s/]+\.[^\s/]{2,}/i.test(trimmed);
+  const showError = touched && trimmed.length > 0 && !looksValid;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim() || isScanning) return;
-    let target = url.trim();
-    if (!target.startsWith("http")) target = `https://${target}`;
+    setTouched(true);
+    if (!looksValid || isScanning) return;
+    const target = trimmed.startsWith("http") ? trimmed : `https://${trimmed}`;
     onStartScan(target);
   };
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-[#0C1220]">
-      {/* Scan line animation */}
-      <div className="scan-line" />
-
-      {/* Three.js Globe - client-only, gated behind isMounted to skip SSR */}
-      <div className="absolute right-0 top-0 w-80 h-full opacity-60 pointer-events-none">
-        {isMounted && (
-          <Suspense fallback={<div className="w-full h-full" />}>
-            <ScannerGlobe />
-          </Suspense>
-        )}
-      </div>
-
-      {/* Grid overlay */}
-      <div
-        className="absolute inset-0 scanner-grid-bg opacity-50"
-        aria-hidden="true"
-      />
-
-      {/* Content */}
-      <div className="relative z-10 px-8 py-10">
-        {/* Title row */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/20">
-            <Globe className="w-3 h-3 text-blue-400" />
-            <span className="text-xs font-mono text-blue-400 tracking-widest">
-              DEEP_SCAN_MODE
-            </span>
-          </div>
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800">
-            <Shield className="w-3 h-3 text-indigo-400" />
-            <span className="text-xs font-mono text-slate-400">
-              3 Agents Active
-            </span>
-          </div>
-        </div>
-
-        <h1 className="text-2xl font-semibold text-white mb-1 tracking-tight">
-          Merchant Inspection Terminal
+    <section className="rounded-xl border border-line bg-surface shadow-card overflow-hidden">
+      <div className="px-6 py-7 sm:px-8 sm:py-9">
+        <h1 className="text-[26px] leading-tight font-semibold tracking-tight text-ink">
+          Merchant risk inspection
         </h1>
-        <p className="text-sm text-slate-500 mb-8 max-w-xl">
-          Submit a merchant URL for autonomous multi-agent risk analysis. Policy,
-          catalog, and digital footprint agents operate in parallel.
+        <p className="mt-2 text-[14px] leading-relaxed text-ink-2 max-w-2xl">
+          Enter a merchant URL to run a full underwriting check. Three agents
+          inspect policy compliance, product catalogue, and domain footprint in
+          parallel, then return a single weighted risk verdict.
         </p>
 
-        {/* URL Input */}
-        <form onSubmit={handleSubmit} className="flex gap-3 max-w-2xl">
-          <div
-            className={`relative flex-1 flex items-center rounded-lg border transition-all duration-200 ${
-              focused
-                ? "border-blue-500/60 bg-slate-900/80 shadow-brand-sm"
-                : "border-slate-700 bg-slate-900/50"
-            }`}
-          >
-            <Search className="w-4 h-4 text-slate-500 ml-3.5 flex-shrink-0" />
-            <input
-              id="merchant-url-input"
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              placeholder="https://merchant-store.com"
-              className="flex-1 bg-transparent px-3 py-3 text-sm text-white placeholder:text-slate-600 outline-none font-mono"
-              disabled={isScanning}
-              autoComplete="off"
-              spellCheck={false}
-            />
-            {url && (
+        <form onSubmit={handleSubmit} className="mt-6 max-w-2xl">
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <div
+              className={`relative flex-1 flex items-center rounded-lg border bg-surface transition-shadow ${
+                showError
+                  ? "border-risk-danger"
+                  : "border-line-strong focus-within:border-brand focus-within:shadow-focus"
+              }`}
+            >
+              <Search className="w-4 h-4 text-ink-4 ml-3.5 flex-shrink-0" aria-hidden />
+              <input
+                id="merchant-url-input"
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onBlur={() => setTouched(true)}
+                placeholder="merchant-store.com"
+                aria-label="Merchant URL"
+                aria-invalid={showError}
+                aria-describedby={showError ? "url-error" : undefined}
+                className="flex-1 bg-transparent px-3 py-3 text-[14px] text-ink placeholder:text-ink-4 outline-none min-w-0"
+                disabled={isScanning}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {url && !isScanning && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUrl("");
+                    setTouched(false);
+                  }}
+                  className="mr-3 p-0.5 rounded text-ink-4 hover:text-ink-2 transition-colors"
+                  aria-label="Clear input"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {isScanning ? (
               <button
                 type="button"
-                onClick={() => setUrl("")}
-                className="mr-3 text-slate-600 hover:text-slate-400 transition-colors"
-                aria-label="Clear input"
+                onClick={onReset}
+                id="cancel-scan-btn"
+                className="flex items-center justify-center gap-2 px-5 py-3 rounded-lg text-[14px] font-medium text-ink-2 bg-surface-muted border border-line-strong hover:bg-surface-sunken transition-colors"
               >
-                <X className="w-3.5 h-3.5" />
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="submit"
+                id="start-scan-btn"
+                disabled={!trimmed}
+                // Disabled state is a light, clearly-inactive surface. A solid
+                // mid-tone fill reads as an available primary action.
+                className="flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-[14px] font-semibold transition-colors text-white bg-brand hover:bg-brand-hover active:bg-brand-press disabled:bg-surface-muted disabled:text-ink-4 disabled:border disabled:border-line disabled:cursor-not-allowed"
+              >
+                Run inspection
+                <ArrowRight className="w-4 h-4" aria-hidden />
               </button>
             )}
           </div>
 
-          {isScanning ? (
-            <button
-              type="button"
-              onClick={onReset}
-              id="cancel-scan-btn"
-              className="flex items-center gap-2 px-5 py-3 rounded-lg text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
-            >
-              <X className="w-4 h-4" />
-              Cancel
-            </button>
-          ) : (
-            <motion.button
-              type="submit"
-              id="start-scan-btn"
-              disabled={!url.trim()}
-              whileHover={{ scale: url.trim() ? 1.02 : 1 }}
-              whileTap={{ scale: url.trim() ? 0.98 : 1 }}
-              className={`relative flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 overflow-hidden ${
-                url.trim()
-                  ? "bg-blue-600 hover:bg-blue-500 text-white shadow-brand-sm"
-                  : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700"
-              }`}
-            >
-              {/* Pulse border animation */}
-              {url.trim() && (
-                <motion.div
-                  className="absolute inset-0 rounded-lg"
-                  animate={{
-                    boxShadow: [
-                      "0 0 0 0 rgba(59,130,246,0)",
-                      "0 0 0 4px rgba(59,130,246,0.15)",
-                      "0 0 0 0 rgba(59,130,246,0)",
-                    ],
-                  }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                />
-              )}
-              <Zap className="w-4 h-4 relative z-10" />
-              <span className="relative z-10">Start Deep Scan</span>
-            </motion.button>
+          {showError && (
+            <p id="url-error" role="alert" className="mt-2 text-xs text-risk-danger">
+              Enter a valid domain, for example <span className="font-mono">merchant-store.com</span>
+            </p>
           )}
         </form>
 
-        {/* Sample domains */}
-        <div className="flex items-center gap-2 mt-4">
-          <span className="text-xs text-slate-600">Try:</span>
-          {[
-            "merchant-electronics.shop",
-            "organicwellness.store",
-            "fastpills-rx.net",
-          ].map((demo) => (
+        <div className="flex items-center gap-2 mt-4 flex-wrap">
+          <span className="text-xs text-ink-3">Try:</span>
+          {SAMPLE_DOMAINS.map((domain) => (
             <button
-              key={demo}
-              onClick={() => setUrl(`https://${demo}`)}
+              key={domain}
+              type="button"
+              onClick={() => {
+                setUrl(domain);
+                setTouched(false);
+              }}
               disabled={isScanning}
-              className="text-xs font-mono text-slate-500 hover:text-blue-400 transition-colors disabled:opacity-40"
+              className="text-xs font-mono px-2 py-1 rounded-md border border-line text-ink-2 hover:border-brand-border hover:bg-brand-soft hover:text-brand-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {demo}
+              {domain}
             </button>
           ))}
         </div>
       </div>
-    </div>
+    </section>
   );
 }
